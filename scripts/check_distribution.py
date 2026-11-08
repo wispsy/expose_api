@@ -15,7 +15,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULES = {"__init__.py", "access.py", "asgi.py", "backpack.py", "backpack_events.py", "enforce_type.py", "errors.py", "events.py", "models.py", "http_protocol.py", "requests.py", "openapi.py", "py.typed", "resources.py", "responses.py", "server.py", "stores.py", "tabular.py", "websocket.py"}
+MODULES = {"__init__.py", "access.py", "asgi.py", "backpack.py", "backpack_events.py", "enforce_type.py", "errors.py", "events.py", "models.py", "http_protocol.py", "requests.py", "openapi.py", "py.typed", "resources.py", "responses.py", "routing.py", "server.py", "stores.py", "tabular.py", "websocket.py"}
 
 
 def run(*args, cwd=ROOT):

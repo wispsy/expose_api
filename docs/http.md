@@ -36,3 +36,36 @@ rules; `form()` supports UTF-8 urlencoded forms with 128 fields. Both validate
 media type before reading. Multipart and unbounded streaming are follow-up
 work. Concurrent readers fail, and a failed, disconnected or canceled reader
 cannot restart consumption. A route uses its application's max_body_size.
+
+Register custom handlers separately from resources:
+
+```python
+from expose_api import App, JSONResponse
+
+app = App()
+
+@app.route('/healthz', public=True)
+def health(request):
+    return JSONResponse({'ready': True})
+
+@app.route('/items/{number:int}', methods=('GET',), public=True)
+async def item(request):
+    return JSONResponse({'number': request.path_params['number']})
+```
+
+Handlers accept one HTTPRequest and return an explicit Response. Awaitable
+results are awaited; synchronous handlers run inline and must be nonblocking.
+Paths support whole-segment `{name}`, `{name:str}`, `{name:int}`, `{name:uuid}`
+and final `{name:path}`. Integers match 1–20 nonnegative decimal digits.
+Routes retain registration order, do not redirect trailing slashes and freeze
+on first ASGI use. Duplicate method/patterns and resource namespace collisions
+fail at registration. Custom HTTP routes do not register WebSockets.
+
+HEAD uses explicit HEAD or GET, suppressing bytes. Generated OPTIONS and 405
+report the union of matching methods. Routes require public=True or an explicit
+boolean authorize callback evaluated before the handler/body reader. Protected
+results and errors use no-store. HTTPException uses the existing error envelope
+with code http_error. Unexpected failures remain redacted.
+
+`app.openapi()` currently describes resources; custom-route metadata is tracked
+separately by WEB-09. Handler registration does not infer validation schemas.

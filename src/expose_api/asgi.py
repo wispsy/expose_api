@@ -18,6 +18,8 @@ from .resources import Resource
 from .websocket import EventSockets
 from .http_protocol import ProtocolError, _Disconnected, _HTTPError
 from .requests import HTTPRequest
+from .responses import Response, JSONResponse, HTTPException
+from .routing import Router, make_route
 
 logger = logging.getLogger("expose_api")
 OPERATIONS = frozenset({"list", "get", "create", "update", "delete"})
@@ -115,6 +117,19 @@ class App:
         self._frozen = False
         self._sockets = EventSockets(self)
         self._tables = {}
+        self._router = Router()
+
+    def route(self, path, *, methods=("GET",), public=False, authorize=None):
+        """Register a handler receiving one HTTPRequest and returning a Response."""
+        def register(handler):
+            if self._frozen:
+                raise ConfigurationError("Register routes before serving the application.")
+            route = make_route(path, handler, methods=methods, public=public, authorize=authorize)
+            if any(route.overlaps(mount.path) for mount in self._mounts):
+                raise ConfigurationError("Custom routes cannot overlap resource namespaces.")
+            self._router._add(route)
+            return handler
+        return register
 
     def tabular(self, resource, **options):
         """Opt into bounded registered tables and explicitly writable columns."""
@@ -171,6 +186,8 @@ class App:
                 raise ConfigurationError("Each resource requires its own model and store.")
             if path == mount.path or path.startswith(mount.path + "/") or mount.path.startswith(path + "/"):
                 raise ConfigurationError("Resource paths cannot overlap.")
+        if any(route.overlaps(path) for route in self._router._routes):
+            raise ConfigurationError("Resource namespaces cannot overlap custom routes.")
         self._mounts.append(_Mount(path, resource, selected, authorize, record_policy, scan_limit))
         return resource
 
@@ -195,6 +212,9 @@ class App:
             raise
         except _HTTPError as exc:
             response = _error(exc.status, exc.code, exc.message, headers=exc.headers)
+        except HTTPException as exc:
+            response = JSONResponse({"error": {"code": "http_error", "message": exc.detail, "details": []}},
+                                    status=exc.status, headers=exc.headers)
         except ValidationError as exc:
             response = _error(422, "validation", "Data does not match the model.",
                               details=[issue.as_dict() for issue in exc.issues])
@@ -212,7 +232,10 @@ class App:
             # Exception messages and tracebacks may contain credentials supplied to user code.
             logger.error("Unhandled application error (%s).", type(exc).__name__)
             response = _error(500, "internal", "Internal server error.")
-        status, headers, body = response
+        if isinstance(response, Response):
+            status, headers, body = response.status, response.headers, response.body
+        else:
+            status, headers, body = response
         if state.protected:
             headers = [*headers, (b"cache-control", b"no-store")]
         await send({"type": "http.response.start", "status": status, "headers": headers})
@@ -222,6 +245,10 @@ class App:
         path, root = scope["path"], scope.get("root_path", "").rstrip("/")
         if root and (path == root or path.startswith(root + "/")):
             path = path[len(root):] or "/"
+        matches = [(route, params) for route in self._router._routes
+                   if (params := route.match(path)) is not None]
+        if matches:
+            return await self._dispatch_route(matches, scope, receive, state)
         for prefix, profile in self._tables.items():
             if path.startswith(prefix + "/_table/"):
                 return await profile.dispatch(self, path[len(prefix + "/_table/"):], scope, receive, state)
@@ -274,6 +301,37 @@ class App:
             location = quote(root + mount.path, safe="/") + "/" + quote(resource.schema.key(value), safe="")
             return _response(201, self._dump(resource, value), ((b"location", location.encode("ascii")),))
         return _response(200, self._dump(resource, await resource.update(identity, data)))
+
+    async def _dispatch_route(self, matches, scope, receive, state):
+        method = scope["method"]
+        allowed = {"OPTIONS"}.union(*(route.methods for route, _ in matches))
+        if "GET" in allowed:
+            allowed.add("HEAD")
+        allow = ((b"allow", ", ".join(sorted(allowed)).encode("ascii")),)
+        selected = next(((route, params) for route, params in matches if method in route.methods), None)
+        if selected is None and method == "HEAD":
+            selected = next(((route, params) for route, params in matches if "GET" in route.methods), None)
+        if selected is None:
+            if method == "OPTIONS":
+                return _response(204, headers=allow)
+            raise _HTTPError(405, "method_not_allowed", "Method not allowed.", headers=allow)
+        route, params = selected
+        state.protected = route.authorize is not None
+        context = HTTPRequest(scope, receive, max_body_size=self.max_body_size, path_params=params, app=self)
+        if route.authorize is not None:
+            permitted = route.authorize(context)
+            if inspect.isawaitable(permitted):
+                permitted = await permitted
+            if type(permitted) is not bool:
+                raise ConfigurationError("Authorization callbacks must return a boolean.")
+            if not permitted:
+                raise _HTTPError(403, "forbidden", "Operation not permitted.")
+        response = route.handler(context)
+        if inspect.isawaitable(response):
+            response = await response
+        if not isinstance(response, Response):
+            raise ConfigurationError("HTTP handlers must return an explicit Response.")
+        return response
 
     async def _context(self, mount, scope, operation, identity):
         context = Request(dict(scope), mount.resource.model, operation, identity)
