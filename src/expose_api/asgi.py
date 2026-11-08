@@ -125,6 +125,7 @@ class App:
         self._asgi_application = None
         self._exception_handlers = {}
         self._security_schemes = {}
+        self._mount_urls = Router()
 
     def openapi_security_scheme(self, name, definition):
         """Register descriptive security metadata without installing authentication."""
@@ -153,7 +154,7 @@ class App:
             raise ConfigurationError("Register callable middleware factories before serving.")
         self._middleware.append((factory, dict(options)))
 
-    def mount(self, path, application):
+    def mount(self, path, application, *, name=None):
         """Mount an HTTP ASGI application; the parent alone owns lifespan."""
         _prefix(path)
         if self._frozen or not path or not callable(application):
@@ -162,6 +163,11 @@ class App:
         if (any(path == prefix or path.startswith(prefix + "/") or prefix.startswith(path + "/")
                 for prefix in prefixes) or any(route.overlaps(path) for route in self._router._routes)):
             raise ConfigurationError("Application mounts cannot overlap registered namespaces.")
+        named = make_route(path + "/{path:path}", application, public=True, name=name) if name is not None else None
+        if named is not None:
+            if any(route.name == name for route in self._router._routes):
+                raise ConfigurationError("Mount and route names must be unique.")
+            self._mount_urls._add(named)
         self._applications.append((path, application))
 
     def route(self, path, *, methods=("GET",), public=False, authorize=None, name=None,
@@ -174,6 +180,8 @@ class App:
                                authenticate=authenticate, dependencies=dependencies, docs=docs)
             if route.authenticate and self.authenticate is None:
                 raise ConfigurationError("Authenticated routes require an application authenticator.")
+            if name is not None and any(route.name == name for route in self._mount_urls._routes):
+                raise ConfigurationError("Route and mount names must be unique.")
             if (any(route.overlaps(mount.path) for mount in self._mounts)
                     or any(route.overlaps(prefix) for prefix, _ in self._applications)):
                 raise ConfigurationError("Custom routes cannot overlap resource namespaces.")
@@ -186,6 +194,8 @@ class App:
         if self._frozen:
             raise ConfigurationError("Include routers before serving the application.")
         routes = prefixed_routes(router, prefix, name_prefix)
+        if any(route.name is not None and route.name == mount.name for route in routes for mount in self._mount_urls._routes):
+            raise ConfigurationError("Route and mount names must be unique.")
         if any(route.authenticate for route in routes) and self.authenticate is None:
             raise ConfigurationError("Authenticated routes require an application authenticator.")
         if (any(route.overlaps(mount.path) for route in routes for mount in self._mounts)
@@ -194,7 +204,11 @@ class App:
         self._router._extend(routes)
 
     def url_path_for(self, name, /, **params):
-        return self._router.url_path_for(name, **params)
+        return self._url_path_for(name, params, "")
+
+    def _url_path_for(self, name, params, root_path):
+        selected = self._mount_urls if any(route.name == name for route in self._mount_urls._routes) else self._router
+        return selected._url_path_for(name, params, root_path)
 
     def tabular(self, resource, **options):
         """Opt into bounded registered tables and explicitly writable columns."""

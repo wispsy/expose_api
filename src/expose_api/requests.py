@@ -81,7 +81,7 @@ class HTTPRequest:
         """Return a local encoded path; Host headers never supply an authority."""
         if self.app is None:
             raise ConfigurationError('URL reversal requires an application-bound request.')
-        return self.app._router._url_path_for(name, params, self.scope.get('root_path', ''))
+        return self.app._url_path_for(name, params, self.scope.get('root_path', ''))
 
     @property
     def query_params(self):

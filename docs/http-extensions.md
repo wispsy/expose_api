@@ -99,3 +99,27 @@ than a general MIME parser or incremental unbounded upload API.
 
 See [multipart/form-data](https://www.rfc-editor.org/rfc/rfc7578.html) for the
 underlying format; the supported subset above is the application contract.
+
+## Rooted static assets
+
+`app.mount('/static', StaticFiles(directory), name='assets')` selects an existing
+asset tree. Named mounts share the route-name namespace and reverse through
+app.url_path_for or request.url_for with one relative path argument. Mounted
+root paths and Unicode encoding are retained; Host never supplies an authority.
+
+StaticFiles serves regular files through FileResponse, including HEAD,
+validators and single ranges. GET/HEAD/OPTIONS are supported; other methods
+return 405/Allow. Directories, missing assets and rejected paths return 404 with
+no listing, index inference or redirect. Defaults are revalidation caching and
+nosniff. The caller selects the assets, MIME overrides and caching headers.
+
+Paths are decoded once by the ASGI server. Reject dot/empty segments,
+backslashes, controls, portable reserved names, Windows streams and trailing
+dot/space names. Hidden segments require allow_hidden=True. Symlinks/reparse
+points below the selected resolved root are rejected. On systems with directory
+descriptors, open each component with no-follow flags. The portable fallback
+checks reparse points, containment and opened identity; its tree/ancestors must
+remain trusted and cannot be concurrently mutated by a hostile filesystem
+actor. This is a trusted deployment asset profile, not an upload publication
+service or filesystem sandbox. Use atomic file replacement and keep untrusted
+writes outside the asset tree.
