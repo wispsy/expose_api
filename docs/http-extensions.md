@@ -71,3 +71,31 @@ ambiguous documents. Resource schemas and opt-in tabular paths are retained.
 No documentation URL is automatically published.
 
 The projection retains [OpenAPI 3.1.0](https://spec.openapis.org/oas/v3.1.0.html).
+
+## Bounded multipart uploads
+
+Use `async with request.multipart(limits=MultipartLimits(...)) as form:`.
+The context owns every UploadFile, including failures/cancellation during parsing
+or handler execution. Ordered repeated names use form.getlist/multi_items; values
+are UTF-8 strings or UploadFile objects with filename, content_type, size and
+async read/seek/close. Filenames are untrusted metadata and never destinations.
+Files must be consumed or copied before the context exits.
+
+The selected native profile buffers a complete body bounded by both App and
+MultipartLimits before parsing, then spools file parts above spool_threshold.
+Defaults: 8 MiB total/part, 64 KiB per field, 8 KiB per header block, 64 parts,
+64 fields, 16 files and 256 KiB spooling threshold. Configure App.max_body_size
+as well; its default 1 MiB remains an upper bound. Byte limits have a 64 MiB
+hard ceiling, headers 64 KiB and counts 1,024. Duplicate names count individually.
+
+Require multipart/form-data with one 1–70 character ASCII boundary and CRLF
+framing. Fields use UTF-8 text/plain. Quoted UTF-8 name/filename parameters are
+supported. Reject preamble/epilogue, folded/duplicate/unknown part headers,
+transfer encodings, nested multipart, filename*, unsupported charsets and
+malformed quoting/boundaries. Limit failures use 413, malformed input 400 and
+wrong media 415, without submitted values. Successful raw body reads cannot
+bypass a later lower parser limit. This profile is deliberately finite rather
+than a general MIME parser or incremental unbounded upload API.
+
+See [multipart/form-data](https://www.rfc-editor.org/rfc/rfc7578.html) for the
+underlying format; the supported subset above is the application contract.

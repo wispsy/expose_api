@@ -35,8 +35,9 @@ UTF-8 decoding. Cookies allow one Cookie header of at most 8 KiB.
 `await request.body()` consumes bounded ASGI events once and caches the bytes.
 It checks actual size and Content-Length. `json()` shares the resource JSON
 rules; `form()` supports UTF-8 urlencoded forms with 128 fields. Both validate
-media type before reading. Multipart and unbounded streaming are follow-up
-work. Concurrent readers fail, and a failed, disconnected or canceled reader
+media type before reading. Multipart uses the separately selected bounded
+profile below; unbounded request streaming remains separate. Concurrent readers
+fail, and a failed, disconnected or canceled reader
 cannot restart consumption. A route uses its application's max_body_size.
 
 Register custom handlers separately from resources:

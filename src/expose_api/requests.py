@@ -118,10 +118,15 @@ class HTTPRequest:
         if len(charsets) > 1 or any(value not in ('utf-8', 'utf8') for value in charsets):
             raise _HTTPError(415, 'media_type', 'Request text must use UTF-8.')
 
-    async def body(self):
+    async def body(self, *, max_size=None):
+        if max_size is not None and (type(max_size) is not int or max_size < 1):
+            raise ConfigurationError('A body reader limit must be a positive integer.')
+        limit = min(self.max_body_size, max_size) if max_size is not None else self.max_body_size
         if self._failure is not None:
             raise self._failure
         if self._body is not None:
+            if len(self._body) > limit:
+                raise _HTTPError(413, 'body_too_large', 'Request body exceeds the size limit.')
             return self._body
         if self._reading:
             raise ProtocolError('Concurrent body readers are not supported.')
@@ -131,7 +136,7 @@ class HTTPRequest:
             if lengths and (len(lengths) != 1 or not re.fullmatch(rb'[0-9]{1,20}', lengths[0])):
                 raise _HTTPError(400, 'length', 'Invalid Content-Length.')
             length = int(lengths[0]) if lengths else None
-            if length is not None and length > self.max_body_size:
+            if length is not None and length > limit:
                 raise _HTTPError(413, 'body_too_large', 'Request body exceeds the size limit.')
             body = bytearray()
             while True:
@@ -142,7 +147,7 @@ class HTTPRequest:
                         or type(event.get('more_body', False)) is not bool):
                     raise ProtocolError('Expected an HTTP request event.')
                 chunk = event.get('body', b'')
-                if len(body) + len(chunk) > self.max_body_size:
+                if len(body) + len(chunk) > limit:
                     raise _HTTPError(413, 'body_too_large', 'Request body exceeds the size limit.')
                 body.extend(chunk)
                 if not event.get('more_body', False):
@@ -171,3 +176,8 @@ class HTTPRequest:
     async def form(self):
         self._media_type('application/x-www-form-urlencoded')
         return _fields(await self.body(), limit=self.max_body_size, max_fields=128, code='form')
+
+    def multipart(self, *, limits=None):
+        """Return an async context manager owning all parsed upload files."""
+        from .multipart import multipart
+        return multipart(self, limits=limits)
