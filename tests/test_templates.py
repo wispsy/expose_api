@@ -74,9 +74,14 @@ class TemplateTests(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_names_context_and_output(self):
         context = HTTPRequest({'method': 'GET', 'path': '/'}, None)
         templates = TemplateRenderer(lambda name, values: 'ok')
-        for name in ('/absolute', '../parent', 'a/../parent', 'a\\b', 'a//b', 'bad\x00name'):
+        for name in ('/absolute', 'C:/outside.html', 'C:outside.html', '../parent', 'a/../parent', 'a\\b', 'a//b', 'bad\x00name'):
             with self.subTest(name=name), self.assertRaises(ConfigurationError):
                 await templates.response(context, name)
+        environment = EnvironmentFixture()
+        for name in ('C:/outside.html', 'C:outside.html'):
+            with self.assertRaises(ConfigurationError):
+                await JinjaTemplates(environment).response(context, name)
+        self.assertEqual(environment.loaded, [])
         for values in ({'request': 'override'}, {'url_for': 'override'}, {1: 'wrong'}):
             with self.assertRaises(ConfigurationError):
                 await templates.response(context, 'page.html', values)
