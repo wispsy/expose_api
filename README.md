@@ -1,5 +1,8 @@
 # expose-api
 
+The [HTTP application enhancement plan](IMPLEMENTATION_PLAN.md) describes the
+general routing layer and the staged Pretty Notebook compatibility work.
+
 See [portable acceptance runners](docs/ci.md) for the default three-OS CI matrix
 and explicit manual ARM64 selection.
 
