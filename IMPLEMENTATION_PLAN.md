@@ -153,3 +153,16 @@ not acceptance claims.
 
 Package publication, release tags and live deployment remain separately
 authorized operations. This plan does not change the deployed application.
+
+## Framework extension double batch
+
+The next batch splits WEB-07 into [stream ownership](https://github.com/wispsy/expose_api/issues/99)
+and [conditional/ranged files](https://github.com/wispsy/expose_api/issues/100),
+then implements WEB-09 custom-route OpenAPI. The second batch implements WEB-08
+bounded native multipart and splits WEB-10 into [rooted static assets](https://github.com/wispsy/expose_api/issues/101),
+[caller-owned renderers](https://github.com/wispsy/expose_api/issues/102) and
+[installed composition acceptance](https://github.com/wispsy/expose_api/issues/103).
+No PNB-WEB task begins in these batches. The selected native upload profile
+buffers only a bounded complete body before parsing and owns temporary-file
+cleanup; it does not promise unbounded streaming uploads. Template engines
+remain caller-supplied; no new mandatory or optional requirement is selected.

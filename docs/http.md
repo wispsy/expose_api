@@ -3,6 +3,8 @@
 This checkout adds explicit HTTP primitives alongside dataclass resources.
 The published 0.1.0 release retains its original API. The staged enhancement
 and application migration gates are in [the plan](../IMPLEMENTATION_PLAN.md).
+See [HTTP extensions](http-extensions.md) for streaming ownership and the
+following bounded file/upload/composition profiles.
 
 `Response(content=b'', status=200, headers=(), media_type=None)` accepts bytes
 or UTF-8 text. Headers may be a dictionary or ordered pairs; repeated pairs

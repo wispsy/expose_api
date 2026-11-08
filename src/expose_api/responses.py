@@ -87,6 +87,10 @@ class Response:
     def delete_cookie(self, name, **options):
         self.set_cookie(name, '', max_age=0, expires=datetime(1970, 1, 1, tzinfo=timezone.utc), **options)
 
+    async def prepare(self, scope):
+        """Resolve a response before headers start; subclasses may own preflight I/O."""
+        return self
+
     async def __call__(self, scope, receive, send):
         await send({'type': 'http.response.start', 'status': self.status, 'headers': list(self.headers)})
         await send({'type': 'http.response.body', 'body': b'' if scope['method'] == 'HEAD' else self.body})

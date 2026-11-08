@@ -39,5 +39,8 @@ async def request(app, path="/notes", method="GET", *, data=None, body=None, hea
                "query_string": query, "http_version": "1.1"}, receive, send)
     if not messages:
         return Result(0, {}, b"", [], reads)
-    assert [m["type"] for m in messages] == ["http.response.start", "http.response.body"]
-    return Result(messages[0]["status"], dict(messages[0]["headers"]), messages[1]["body"], messages, reads)
+    assert messages[0]['type'] == 'http.response.start'
+    assert all(message['type'] == 'http.response.body' for message in messages[1:])
+    assert not messages[-1].get('more_body', False)
+    return Result(messages[0]["status"], dict(messages[0]["headers"]),
+                  b''.join(message.get('body', b'') for message in messages[1:]), messages, reads)
