@@ -2,6 +2,9 @@
 
 The [HTTP application enhancement plan](IMPLEMENTATION_PLAN.md) describes the
 general routing layer and the staged Pretty Notebook compatibility work.
+This checkout also supports [explicit HTTP handlers](docs/http.md), routers,
+responses, middleware and mounts alongside generated dataclass resources.
+See [the handler example](examples/http_handlers.py) for health and query routes.
 
 See [portable acceptance runners](docs/ci.md) for the default three-OS CI matrix
 and explicit manual ARM64 selection.

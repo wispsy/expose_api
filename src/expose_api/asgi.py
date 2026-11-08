@@ -18,7 +18,7 @@ from .resources import Resource
 from .websocket import EventSockets
 from .http_protocol import ProtocolError, _Disconnected, _HTTPError
 from .requests import HTTPRequest
-from .responses import Response, JSONResponse, HTTPException
+from .responses import Response, HTTPException
 from .routing import Router, make_route, prefixed_routes, _prefix
 from .composition import MountedResponse, mounted_response
 
@@ -54,6 +54,7 @@ class _Mount:
 @dataclass(slots=True)
 class _RequestState:
     protected: bool = False
+    context: HTTPRequest | None = None
 
 
 @asynccontextmanager
@@ -122,6 +123,18 @@ class App:
         self._applications = []
         self._middleware = []
         self._asgi_application = None
+        self._exception_handlers = {}
+
+    def exception_handler(self, exception_type):
+        """Register a request/exception handler returning an explicit Response."""
+        def register(handler):
+            if (self._frozen or not isinstance(exception_type, type)
+                    or not issubclass(exception_type, Exception) or issubclass(exception_type, ProtocolError)
+                    or not callable(handler) or exception_type in self._exception_handlers):
+                raise ConfigurationError("Register each HTTP exception type once before serving.")
+            self._exception_handlers[exception_type] = handler
+            return handler
+        return register
 
     def add_middleware(self, factory, **options):
         """Register an ASGI factory; first registered is outermost."""
@@ -140,12 +153,16 @@ class App:
             raise ConfigurationError("Application mounts cannot overlap registered namespaces.")
         self._applications.append((path, application))
 
-    def route(self, path, *, methods=("GET",), public=False, authorize=None, name=None):
+    def route(self, path, *, methods=("GET",), public=False, authorize=None, name=None,
+              authenticate=False, dependencies=()):
         """Register a handler receiving one HTTPRequest and returning a Response."""
         def register(handler):
             if self._frozen:
                 raise ConfigurationError("Register routes before serving the application.")
-            route = make_route(path, handler, methods=methods, public=public, authorize=authorize, name=name)
+            route = make_route(path, handler, methods=methods, public=public, authorize=authorize, name=name,
+                               authenticate=authenticate, dependencies=dependencies)
+            if route.authenticate and self.authenticate is None:
+                raise ConfigurationError("Authenticated routes require an application authenticator.")
             if (any(route.overlaps(mount.path) for mount in self._mounts)
                     or any(route.overlaps(prefix) for prefix, _ in self._applications)):
                 raise ConfigurationError("Custom routes cannot overlap resource namespaces.")
@@ -158,6 +175,8 @@ class App:
         if self._frozen:
             raise ConfigurationError("Include routers before serving the application.")
         routes = prefixed_routes(router, prefix, name_prefix)
+        if any(route.authenticate for route in routes) and self.authenticate is None:
+            raise ConfigurationError("Authenticated routes require an application authenticator.")
         if (any(route.overlaps(mount.path) for route in routes for mount in self._mounts)
                 or any(route.overlaps(prefix) for route in routes for prefix, _ in self._applications)):
             raise ConfigurationError("Custom routes cannot overlap resource namespaces.")
@@ -243,12 +262,17 @@ class App:
             return
         scope = dict(scope)
         scope["headers"] = tuple(scope.get("headers", ()))
+        state = _RequestState()
+        scope["expose_api.request_state"] = state
         started = False
         async def guarded_send(event):
             nonlocal started
             if event["type"] == "http.response.start":
                 if started:
                     raise ProtocolError("Response already started.")
+                if state.protected:
+                    headers = [(key, value) for key, value in event.get("headers", ()) if key.lower() != b"cache-control"]
+                    event = {**event, "headers": [*headers, (b"cache-control", b"no-store")]}
                 started = True
             elif event["type"] == "http.response.body":
                 if not started:
@@ -265,12 +289,11 @@ class App:
         except Exception as exc:
             if started:
                 raise
-            if isinstance(exc, HTTPException):
-                response = _error(exc.status, "http_error", exc.detail, headers=exc.headers)
+            response = await self._exception_response(exc, scope, receive, state)
+            if isinstance(response, Response):
+                status, headers, body = response.status, response.headers, response.body
             else:
-                logger.error("Unhandled middleware or mounted application error (%s).", type(exc).__name__)
-                response = _error(500, "internal", "Internal server error.")
-            status, headers, body = response
+                status, headers, body = response
             await guarded_send({"type": "http.response.start", "status": status, "headers": headers})
             await guarded_send({"type": "http.response.body", "body": body})
 
@@ -285,35 +308,15 @@ class App:
             raise ProtocolError("Unsupported ASGI scope type.")
         scope = dict(scope)
         scope["headers"] = tuple(scope.get("headers", ()))
-        state = _RequestState()
+        state = scope["expose_api.request_state"]
         try:
             response = await self._dispatch(scope, receive, state)
         except _Disconnected:
             return
         except ProtocolError:
             raise
-        except _HTTPError as exc:
-            response = _error(exc.status, exc.code, exc.message, headers=exc.headers)
-        except HTTPException as exc:
-            response = JSONResponse({"error": {"code": "http_error", "message": exc.detail, "details": []}},
-                                    status=exc.status, headers=exc.headers)
-        except ValidationError as exc:
-            response = _error(422, "validation", "Data does not match the model.",
-                              details=[issue.as_dict() for issue in exc.issues])
-        except AccessDeniedError:
-            response = _error(403, "forbidden", "Operation not permitted.")
-        except AccessScanError:
-            response = _error(503, "access_scan", "Visible page exceeds the scan budget.")
-        except NotFoundError:
-            response = _error(404, "not_found", "Record not found.")
-        except RevisionConflictError:
-            response = _error(409, "revision_conflict", "Record changed after the expected revision.")
-        except ConflictError:
-            response = _error(409, "conflict", "Record already exists.")
         except Exception as exc:
-            # Exception messages and tracebacks may contain credentials supplied to user code.
-            logger.error("Unhandled application error (%s).", type(exc).__name__)
-            response = _error(500, "internal", "Internal server error.")
+            response = await self._exception_response(exc, scope, receive, state)
         if isinstance(response, MountedResponse):
             await response.application(response.scope, receive, send)
             return
@@ -321,10 +324,47 @@ class App:
             status, headers, body = response.status, response.headers, response.body
         else:
             status, headers, body = response
-        if state.protected:
-            headers = [*headers, (b"cache-control", b"no-store")]
         await send({"type": "http.response.start", "status": status, "headers": headers})
         await send({"type": "http.response.body", "body": b"" if scope["method"] == "HEAD" else body})
+
+    async def _exception_response(self, exc, scope, receive, state):
+        handler = next((self._exception_handlers[kind] for kind in type(exc).__mro__
+                        if kind in self._exception_handlers), None)
+        if handler is not None:
+            context = state.context
+            if context is None:
+                context = HTTPRequest(scope, receive, max_body_size=self.max_body_size, app=self)
+                context._failure = ProtocolError("Exception handlers cannot read an unowned request body.")
+            try:
+                response = handler(context, exc)
+                if inspect.isawaitable(response):
+                    response = await response
+                if not isinstance(response, Response):
+                    raise ConfigurationError("Exception handlers must return an explicit Response.")
+                return response
+            except (ProtocolError, _Disconnected):
+                raise
+            except Exception as failure:
+                logger.error("HTTP exception handler failed (%s).", type(failure).__name__)
+                return _error(500, "internal", "Internal server error.")
+        if isinstance(exc, _HTTPError):
+            return _error(exc.status, exc.code, exc.message, headers=exc.headers)
+        if isinstance(exc, HTTPException):
+            return _error(exc.status, "http_error", exc.detail, headers=exc.headers)
+        if isinstance(exc, ValidationError):
+            return _error(422, "validation", "Data does not match the model.",
+                          details=[issue.as_dict() for issue in exc.issues])
+        for kind, status, code, message in (
+            (AccessDeniedError, 403, "forbidden", "Operation not permitted."),
+            (AccessScanError, 503, "access_scan", "Visible page exceeds the scan budget."),
+            (NotFoundError, 404, "not_found", "Record not found."),
+            (RevisionConflictError, 409, "revision_conflict", "Record changed after the expected revision."),
+            (ConflictError, 409, "conflict", "Record already exists."),
+        ):
+            if isinstance(exc, kind):
+                return _error(status, code, message)
+        logger.error("Unhandled application error (%s).", type(exc).__name__)
+        return _error(500, "internal", "Internal server error.")
 
     async def _dispatch(self, scope, receive, state):
         path, root = scope["path"], scope.get("root_path", "").rstrip("/")
@@ -392,6 +432,7 @@ class App:
 
     async def _dispatch_route(self, matches, scope, receive, state):
         method = scope["method"]
+        state.protected = any(route.authorize is not None for route, _ in matches)
         allowed = {"OPTIONS"}.union(*(route.methods for route, _ in matches))
         if "GET" in allowed:
             allowed.add("HEAD")
@@ -406,6 +447,17 @@ class App:
         route, params = selected
         state.protected = route.authorize is not None
         context = HTTPRequest(scope, receive, max_body_size=self.max_body_size, path_params=params, app=self)
+        state.context = context
+        if route.authenticate:
+            principal = self.authenticate(context)
+            if inspect.isawaitable(principal):
+                principal = await principal
+            if principal is None:
+                raise _HTTPError(401, "unauthenticated", "Authentication required.",
+                                 headers=((b"www-authenticate", self.auth_challenge.encode("ascii")),))
+            if type(principal) is not Principal:
+                raise ConfigurationError("Authentication must return a Principal or None.")
+            context.principal = principal
         if route.authorize is not None:
             permitted = route.authorize(context)
             if inspect.isawaitable(permitted):
@@ -414,6 +466,12 @@ class App:
                 raise ConfigurationError("Authorization callbacks must return a boolean.")
             if not permitted:
                 raise _HTTPError(403, "forbidden", "Operation not permitted.")
+        for dependency in route.dependencies:
+            result = dependency(context)
+            if inspect.isawaitable(result):
+                result = await result
+            if result is not None:
+                raise ConfigurationError("Request dependencies must return None; raise HTTPException to deny.")
         response = route.handler(context)
         if inspect.isawaitable(response):
             response = await response

@@ -99,3 +99,28 @@ preserved full path/raw_path/query (relative parent paths are normalized with
 the root prefix). The child owns its authentication. Parent lifespan runs once;
 mounted child lifespans require explicit ownership in that parent lifespan.
 Mounting does not provide static-file serving or child WebSocket dispatch.
+
+Routes can select `authenticate=True` with an explicit authorize callback.
+The App must have authenticate and auth_challenge configured. The authenticator
+receives HTTPRequest and returns a verified Principal or None; BearerAuth works
+with both request interfaces. Missing identity returns 401 with the challenge;
+authorization false returns 403. Authentication runs before authorization, then
+dependencies, then the handler. All protected responses and errors force one
+Cache-Control: no-store value, including custom error responses.
+
+`dependencies=(hook, ...)` runs explicit request hooks in order, once per callable
+identity per request. Hooks receive HTTPRequest, may be async, and return None.
+They can populate request.state or raise HTTPException to stop the request.
+There is no signature injection, yielded dependency context or return-value
+injection. Caller-owned resource cleanup belongs in lifespan or handler context
+managers. Authentication, authorization and hooks do not implicitly read a body.
+
+`@app.exception_handler(ValueError)` registers a `(request, exception)` handler
+returning Response. The closest type in the exception's method resolution order
+wins. Explicit registrations may override default resource errors too; without
+one, existing resource error envelopes are retained. Route handlers reuse their
+request, principal and cached body/state. An error outside a custom route receives
+an application-bound request whose unowned body cannot be consumed. Handler
+failures are sanitized without recursion. Disconnect, cancellation, protocol and
+post-response-start/transport failures bypass these handlers. Registration
+freezes on first ASGI use. Error text is public only when explicitly selected.
