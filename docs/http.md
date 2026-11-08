@@ -21,3 +21,18 @@ headers remain distinct. SameSite defaults to lax; SameSite none and secure
 cookie prefixes require secure attributes. Expiry accepts an aware datetime.
 `HTTPException(status, detail, headers=())` carries intentionally public error
 text; do not include credentials in detail.
+
+`HTTPRequest` is the separate custom-handler request; resource authorization
+continues to receive `Request`. It exposes method, path, copied scope/state,
+path_params, principal and application. `header(name)` returns a value only
+when exactly one exists. `headers.getlist(name)` and
+`query_params.getlist(name)` preserve repetitions; mapping reads select the
+last value. Query strings allow 8 KiB and 128 fields, with strict percent and
+UTF-8 decoding. Cookies allow one Cookie header of at most 8 KiB.
+
+`await request.body()` consumes bounded ASGI events once and caches the bytes.
+It checks actual size and Content-Length. `json()` shares the resource JSON
+rules; `form()` supports UTF-8 urlencoded forms with 128 fields. Both validate
+media type before reading. Multipart and unbounded streaming are follow-up
+work. Concurrent readers fail, and a failed, disconnected or canceled reader
+cannot restart consumption. A route uses its application's max_body_size.

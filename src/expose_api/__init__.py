@@ -12,6 +12,7 @@ from .asgi import App, ProtocolError, Request
 from .server import serve
 from .tabular import TableColumn
 from .responses import Response, JSONResponse, HTMLResponse, RedirectResponse, HTTPException
+from .requests import HTTPRequest
 
-__all__ = ["Response", "JSONResponse", "HTMLResponse", "RedirectResponse", "HTTPException", "EventPage", "EventSnapshot", "EventStore", "AccessDeniedError", "AccessScanError", "AccessStore", "BearerAuth", "Principal", "App", "ConfigurationError", "ConflictError", "Issue", "MemoryStore", "ModelSchema",
+__all__ = ["HTTPRequest", "Response", "JSONResponse", "HTMLResponse", "RedirectResponse", "HTTPException", "EventPage", "EventSnapshot", "EventStore", "AccessDeniedError", "AccessScanError", "AccessStore", "BearerAuth", "Principal", "App", "ConfigurationError", "ConflictError", "Issue", "MemoryStore", "ModelSchema",
            "NotFoundError", "ProtocolError", "Request", "Resource", "RevisionConflictError", "Store", "ValidationError", "serve", "TableColumn"]
