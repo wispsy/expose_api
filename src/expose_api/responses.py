@@ -120,4 +120,6 @@ class HTTPException(Exception):
         if type(status) is not int or not 400 <= status <= 599 or type(detail) is not str:
             raise ConfigurationError('HTTPException requires an error status and public text.')
         self.status, self.detail, self.headers = status, detail, _headers(headers)
+        if any(name in (b'content-length', b'transfer-encoding') for name, _ in self.headers):
+            raise ConfigurationError('HTTPException framing is owned by the error response.')
         super().__init__(detail)
