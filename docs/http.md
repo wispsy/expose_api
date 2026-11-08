@@ -69,3 +69,18 @@ with code http_error. Unexpected failures remain redacted.
 
 `app.openapi()` currently describes resources; custom-route metadata is tracked
 separately by WEB-09. Handler registration does not infer validation schemas.
+
+Use `Router(prefix='/api')` with the same route decorator, then
+`app.include_router(router, prefix='/v1', name_prefix='v1:')`. Routers can include
+other routers. Each inclusion copies the current registrations in order and
+fails atomically on collisions; later router changes do not change applications.
+Names are optional, bounded and unique when provided. Use name_prefix when
+including named routes multiple times.
+
+`app.url_path_for('item', number=1)` returns a local path.
+`request.url_for('item', number=1)` includes the ASGI root_path. Both require
+exact parameter names and matching converter values; UUID requires a UUID
+object, int requires an ordinary nonnegative integer. Strings are encoded once;
+path parameters allow safe multiple segments. Reversal rejects dot segments,
+empty segments, slashes in ordinary strings and backslashes. Host headers never
+contribute an authority. Neither method creates an absolute external URL.

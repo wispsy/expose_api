@@ -19,7 +19,7 @@ from .websocket import EventSockets
 from .http_protocol import ProtocolError, _Disconnected, _HTTPError
 from .requests import HTTPRequest
 from .responses import Response, JSONResponse, HTTPException
-from .routing import Router, make_route
+from .routing import Router, make_route, prefixed_routes
 
 logger = logging.getLogger("expose_api")
 OPERATIONS = frozenset({"list", "get", "create", "update", "delete"})
@@ -119,17 +119,29 @@ class App:
         self._tables = {}
         self._router = Router()
 
-    def route(self, path, *, methods=("GET",), public=False, authorize=None):
+    def route(self, path, *, methods=("GET",), public=False, authorize=None, name=None):
         """Register a handler receiving one HTTPRequest and returning a Response."""
         def register(handler):
             if self._frozen:
                 raise ConfigurationError("Register routes before serving the application.")
-            route = make_route(path, handler, methods=methods, public=public, authorize=authorize)
+            route = make_route(path, handler, methods=methods, public=public, authorize=authorize, name=name)
             if any(route.overlaps(mount.path) for mount in self._mounts):
                 raise ConfigurationError("Custom routes cannot overlap resource namespaces.")
             self._router._add(route)
             return handler
         return register
+
+    def include_router(self, router, *, prefix="", name_prefix=""):
+        """Snapshot router registrations atomically under a static prefix."""
+        if self._frozen:
+            raise ConfigurationError("Include routers before serving the application.")
+        routes = prefixed_routes(router, prefix, name_prefix)
+        if any(route.overlaps(mount.path) for route in routes for mount in self._mounts):
+            raise ConfigurationError("Custom routes cannot overlap resource namespaces.")
+        self._router._extend(routes)
+
+    def url_path_for(self, name, /, **params):
+        return self._router.url_path_for(name, **params)
 
     def tabular(self, resource, **options):
         """Opt into bounded registered tables and explicitly writable columns."""
