@@ -84,3 +84,18 @@ object, int requires an ordinary nonnegative integer. Strings are encoded once;
 path parameters allow safe multiple segments. Reversal rejects dot segments,
 empty segments, slashes in ordinary strings and backslashes. Host headers never
 contribute an authority. Neither method creates an absolute external URL.
+
+`app.add_middleware(factory, **options)` uses ordinary ASGI middleware:
+factory(inner_app, **options) returns an ASGI callable. The first registered
+factory is outermost. Factories are built once on first use and registration
+then freezes. HTTP errors before response-start are sanitized; errors after
+start, transport failures, cancellation and protocol errors propagate. The
+outer boundary suppresses HEAD bodies even for middleware or mounted apps.
+
+`app.mount('/static', selected_asgi_app)` delegates that HTTP namespace on whole
+segment boundaries. Mounts cannot overlap other mounts, custom handlers or
+resources. The child receives a copied scope/state, extended root_path and
+preserved full path/raw_path/query (relative parent paths are normalized with
+the root prefix). The child owns its authentication. Parent lifespan runs once;
+mounted child lifespans require explicit ownership in that parent lifespan.
+Mounting does not provide static-file serving or child WebSocket dispatch.

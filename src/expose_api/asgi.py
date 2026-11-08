@@ -19,7 +19,8 @@ from .websocket import EventSockets
 from .http_protocol import ProtocolError, _Disconnected, _HTTPError
 from .requests import HTTPRequest
 from .responses import Response, JSONResponse, HTTPException
-from .routing import Router, make_route, prefixed_routes
+from .routing import Router, make_route, prefixed_routes, _prefix
+from .composition import MountedResponse, mounted_response
 
 logger = logging.getLogger("expose_api")
 OPERATIONS = frozenset({"list", "get", "create", "update", "delete"})
@@ -118,6 +119,26 @@ class App:
         self._sockets = EventSockets(self)
         self._tables = {}
         self._router = Router()
+        self._applications = []
+        self._middleware = []
+        self._asgi_application = None
+
+    def add_middleware(self, factory, **options):
+        """Register an ASGI factory; first registered is outermost."""
+        if self._frozen or not callable(factory):
+            raise ConfigurationError("Register callable middleware factories before serving.")
+        self._middleware.append((factory, dict(options)))
+
+    def mount(self, path, application):
+        """Mount an HTTP ASGI application; the parent alone owns lifespan."""
+        _prefix(path)
+        if self._frozen or not path or not callable(application):
+            raise ConfigurationError("Mount callable applications on nonempty prefixes before serving.")
+        prefixes = [mount.path for mount in self._mounts] + [prefix for prefix, _ in self._applications]
+        if (any(path == prefix or path.startswith(prefix + "/") or prefix.startswith(path + "/")
+                for prefix in prefixes) or any(route.overlaps(path) for route in self._router._routes)):
+            raise ConfigurationError("Application mounts cannot overlap registered namespaces.")
+        self._applications.append((path, application))
 
     def route(self, path, *, methods=("GET",), public=False, authorize=None, name=None):
         """Register a handler receiving one HTTPRequest and returning a Response."""
@@ -125,7 +146,8 @@ class App:
             if self._frozen:
                 raise ConfigurationError("Register routes before serving the application.")
             route = make_route(path, handler, methods=methods, public=public, authorize=authorize, name=name)
-            if any(route.overlaps(mount.path) for mount in self._mounts):
+            if (any(route.overlaps(mount.path) for mount in self._mounts)
+                    or any(route.overlaps(prefix) for prefix, _ in self._applications)):
                 raise ConfigurationError("Custom routes cannot overlap resource namespaces.")
             self._router._add(route)
             return handler
@@ -136,7 +158,8 @@ class App:
         if self._frozen:
             raise ConfigurationError("Include routers before serving the application.")
         routes = prefixed_routes(router, prefix, name_prefix)
-        if any(route.overlaps(mount.path) for route in routes for mount in self._mounts):
+        if (any(route.overlaps(mount.path) for route in routes for mount in self._mounts)
+                or any(route.overlaps(prefix) for route in routes for prefix, _ in self._applications)):
             raise ConfigurationError("Custom routes cannot overlap resource namespaces.")
         self._router._extend(routes)
 
@@ -200,11 +223,58 @@ class App:
                 raise ConfigurationError("Resource paths cannot overlap.")
         if any(route.overlaps(path) for route in self._router._routes):
             raise ConfigurationError("Resource namespaces cannot overlap custom routes.")
+        if any(path == prefix or path.startswith(prefix + "/") or prefix.startswith(path + "/")
+               for prefix, _ in self._applications):
+            raise ConfigurationError("Resources cannot overlap application mounts.")
         self._mounts.append(_Mount(path, resource, selected, authorize, record_policy, scan_limit))
         return resource
 
     async def __call__(self, scope, receive, send):
         self._frozen = True
+        if self._asgi_application is None:
+            application = self._serve
+            for factory, options in reversed(self._middleware):
+                application = factory(application, **options)
+                if not callable(application):
+                    raise ConfigurationError("Middleware factories must return an ASGI callable.")
+            self._asgi_application = application
+        if scope["type"] != "http":
+            await self._asgi_application(scope, receive, send)
+            return
+        scope = dict(scope)
+        scope["headers"] = tuple(scope.get("headers", ()))
+        started = False
+        async def guarded_send(event):
+            nonlocal started
+            if event["type"] == "http.response.start":
+                if started:
+                    raise ProtocolError("Response already started.")
+                started = True
+            elif event["type"] == "http.response.body":
+                if not started:
+                    raise ProtocolError("Response body precedes response start.")
+                if scope["method"] == "HEAD":
+                    event = {**event, "body": b""}
+            await send(event)
+        try:
+            await self._asgi_application(scope, receive, guarded_send)
+        except _Disconnected:
+            return
+        except ProtocolError:
+            raise
+        except Exception as exc:
+            if started:
+                raise
+            if isinstance(exc, HTTPException):
+                response = _error(exc.status, "http_error", exc.detail, headers=exc.headers)
+            else:
+                logger.error("Unhandled middleware or mounted application error (%s).", type(exc).__name__)
+                response = _error(500, "internal", "Internal server error.")
+            status, headers, body = response
+            await guarded_send({"type": "http.response.start", "status": status, "headers": headers})
+            await guarded_send({"type": "http.response.body", "body": body})
+
+    async def _serve(self, scope, receive, send):
         if scope["type"] == "lifespan":
             await self._lifespan(receive, send)
             return
@@ -244,6 +314,9 @@ class App:
             # Exception messages and tracebacks may contain credentials supplied to user code.
             logger.error("Unhandled application error (%s).", type(exc).__name__)
             response = _error(500, "internal", "Internal server error.")
+        if isinstance(response, MountedResponse):
+            await response.application(response.scope, receive, send)
+            return
         if isinstance(response, Response):
             status, headers, body = response.status, response.headers, response.body
         else:
@@ -257,6 +330,9 @@ class App:
         path, root = scope["path"], scope.get("root_path", "").rstrip("/")
         if root and (path == root or path.startswith(root + "/")):
             path = path[len(root):] or "/"
+        for prefix, application in self._applications:
+            if path == prefix or path.startswith(prefix + "/"):
+                return mounted_response(application, scope, path, root, prefix)
         matches = [(route, params) for route in self._router._routes
                    if (params := route.match(path)) is not None]
         if matches:
