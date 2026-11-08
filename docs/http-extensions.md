@@ -147,3 +147,25 @@ With Expose API and Jinja already installed in a selected environment, run
 `python scripts/check_jinja.py` to qualify synchronous/asynchronous escaping and
 local URLs. Core CI uses a structural engine fixture and does not install Jinja.
 The adapter follows Jinja's [environment, rendering and autoescape interface](https://jinja.palletsprojects.com/en/stable/api/).
+
+## Installed composition acceptance
+
+`examples/http_extensions.py` combines an escaped caller-owned renderer, named
+static mounts, conditional downloads, a byte stream, a bounded authenticated
+upload receipt and explicit route documentation. It consumes caller-selected
+assets containing site.css/download.txt. Its default authenticator denies every
+upload; callers provide verification. Uploads are hashed inside their owned
+context, then discarded rather than published or persisted.
+
+The framework integration tests exercise mounted root paths and real HTTP,
+including HEAD/ranges, pre-body authentication denial, multipart cleanup,
+stream closure and lifespan shutdown. The same base suite runs once per clean
+wheel/source installation. Distribution receipts retain its HTTP module counts,
+platform/version, pass/failure and skip details, and confirm that Jinja was not
+imported. Existing three-platform CI retains those receipts alongside its
+optional persistence/validation qualification. The separate caller-installed
+Jinja probe records engine evidence without adding a package requirement.
+
+This qualifies the selected framework profiles. Pretty Notebook's dependencies,
+protocol parity, application factories, transactions and deployment acceptance
+remain owned by PNB-WEB-01 through PNB-WEB-04; none begins in these batches.

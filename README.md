@@ -5,6 +5,10 @@ general routing layer and the staged Pretty Notebook compatibility work.
 This checkout also supports [explicit HTTP handlers](docs/http.md), routers,
 responses, middleware and mounts alongside generated dataclass resources.
 See [the handler example](examples/http_handlers.py) for health and query routes.
+The [HTTP extension contracts](docs/http-extensions.md) cover streams, conditional
+files, bounded multipart uploads, custom-route OpenAPI, rooted static assets and
+caller-owned templates. The [composition example](examples/http_extensions.py)
+exercises these interfaces together; upload authentication is caller-supplied.
 
 See [portable acceptance runners](docs/ci.md) for the default three-OS CI matrix
 and explicit manual ARM64 selection.

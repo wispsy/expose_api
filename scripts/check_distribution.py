@@ -80,7 +80,10 @@ def installed(artifact, work, name, version, *, requirements=None):
             "--tests", work / "tests", "--receipt", validation, "--backpack", cwd=work)
         return {**json.loads(receipt.read_text(encoding="utf-8")),
                 "validation": json.loads(validation.read_text(encoding="utf-8"))}
-    run(python, "-I", "-W", "error::ResourceWarning", "-m", "unittest", "discover", "-s", work / "tests", "-v", cwd=work)
+    receipt = work / f"{name}-http.json"
+    run(python, "-I", "-W", "error::ResourceWarning", ROOT / "scripts" / "check_installed_http.py",
+        "--tests", work / "tests", "--receipt", receipt, cwd=work)
+    return json.loads(receipt.read_text(encoding="utf-8"))
 
 
 def installed_validation(artifact, work, label):
@@ -138,8 +141,8 @@ def main():
         (work / "docs").mkdir()
         shutil.copy2(ROOT / "docs/tabular-v1.json", work / "docs/tabular-v1.json")
         shutil.copytree(ROOT / "examples", work / "examples", ignore=shutil.ignore_patterns("__pycache__"))
-        installed(wheel, work, "wheel-install", version)
-        installed(source, work, "source-install", version)
+        http_profiles = {"wheel": installed(wheel, work, "wheel-install", version),
+                         "source": installed(source, work, "source-install", version)}
         profiles, validation = {}, {}
         if args.enforce_type:
             for label, artifact in (("wheel", wheel), ("source", source)):
@@ -155,7 +158,8 @@ def main():
             args.output_dir.mkdir(parents=True, exist_ok=True)
             for path in (wheel, source):
                 shutil.copy2(path, args.output_dir / path.name)
-        result = {"version": version, "sha256": receipts, "optional_profiles": profiles, "validation_profiles": validation}
+        result = {"version": version, "sha256": receipts, "optional_profiles": profiles,
+                  "validation_profiles": validation, "http_profiles": http_profiles}
         if args.receipt_file:
             args.receipt_file.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(result, indent=2))
