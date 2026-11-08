@@ -128,7 +128,8 @@ writes outside the asset tree.
 
 `TemplateRenderer(render).response(request, name, context, status=200, headers=())`
 is asynchronous and returns HTMLResponse. A renderer receives a validated
-relative loader name and a fresh top-level context dictionary containing request
+relative loader name (excluding POSIX and Windows drive-qualified paths) and
+a fresh top-level context dictionary containing request
 and local url_for. Those keys cannot be overridden. A renderer may return text
 or an awaitable of text. It owns escaping, template loading, nested context
 objects and resource lifecycle, just as a caller selecting HTMLResponse owns

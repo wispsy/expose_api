@@ -2,6 +2,7 @@
 
 import inspect
 from collections.abc import Mapping
+from pathlib import PureWindowsPath
 
 from .errors import ConfigurationError
 from .requests import HTTPRequest
@@ -10,6 +11,7 @@ from .responses import HTMLResponse
 
 def _name(name):
     if (type(name) is not str or not name or len(name) > 1024 or name.startswith('/')
+            or PureWindowsPath(name).drive
             or any(c == '\\' or ord(c) < 32 or ord(c) == 127 for c in name)
             or any(part in ('', '.', '..') for part in name.split('/'))):
         raise ConfigurationError('Template names must be safe relative loader names.')
