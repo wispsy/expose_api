@@ -16,22 +16,11 @@ from .errors import AccessDeniedError, AccessScanError, ConfigurationError, Conf
 from .models import MAX_DEPTH
 from .resources import Resource
 from .websocket import EventSockets
+from .http_protocol import ProtocolError, _Disconnected, _HTTPError
+from .requests import HTTPRequest
 
 logger = logging.getLogger("expose_api")
 OPERATIONS = frozenset({"list", "get", "create", "update", "delete"})
-
-
-class ProtocolError(RuntimeError):
-    """The ASGI server supplied an invalid protocol event."""
-
-
-class _Disconnected(Exception):
-    pass
-
-
-class _HTTPError(Exception):
-    def __init__(self, status, code, message, *, headers=()):
-        self.status, self.code, self.message, self.headers = status, code, message, headers
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,46 +326,7 @@ class App:
 
     async def _body(self, scope, receive, *, max_size=None):
         max_size = self.max_body_size if max_size is None else min(self.max_body_size, max_size)
-        headers = scope.get("headers", ())
-        content_types = [v.decode("latin-1") for k, v in headers if k.lower() == b"content-type"]
-        if len(content_types) != 1:
-            raise _HTTPError(415, "media_type", "A JSON Content-Type is required.")
-        media, *parameters = content_types[0].lower().split(";")
-        media = media.strip()
-        if media != "application/json" and not re.fullmatch(r"application/[a-z0-9!#$&^_.+-]+\+json", media):
-            raise _HTTPError(415, "media_type", "A JSON Content-Type is required.")
-        if any(p.strip().startswith("charset=") and p.strip()[8:].strip('" ') not in ("utf-8", "utf8")
-               for p in parameters):
-            raise _HTTPError(415, "media_type", "JSON must use UTF-8.")
-        lengths = [v for k, v in headers if k.lower() == b"content-length"]
-        length = None
-        if lengths:
-            if len(lengths) != 1 or not re.fullmatch(rb"[0-9]{1,20}", lengths[0]):
-                raise _HTTPError(400, "length", "Invalid Content-Length.")
-            length = int(lengths[0])
-            if length > max_size:
-                raise _HTTPError(413, "body_too_large", "Request body exceeds the size limit.")
-        body = bytearray()
-        while True:
-            event = await receive()
-            if event["type"] == "http.disconnect":
-                raise _Disconnected
-            if event["type"] != "http.request" or type(event.get("body", b"")) is not bytes:
-                raise ProtocolError("Expected an HTTP request event.")
-            chunk = event.get("body", b"")
-            if len(body) + len(chunk) > max_size:
-                raise _HTTPError(413, "body_too_large", "Request body exceeds the size limit.")
-            body.extend(chunk)
-            if not event.get("more_body", False):
-                break
-        if length is not None and len(body) != length:
-            raise _HTTPError(400, "length", "Content-Length does not match the request body.")
-        try:
-            data = json.loads(body.decode("utf-8"), object_pairs_hook=_pairs, parse_constant=_constant)
-            _check_json(data)
-        except (ValueError, UnicodeError, RecursionError):
-            raise _HTTPError(400, "json", "Invalid JSON body.") from None
-        return data
+        return await HTTPRequest(scope, receive, max_body_size=max_size).json()
 
     async def _lifespan(self, receive, send):
         event = await receive()
