@@ -291,9 +291,9 @@ class App:
                 raise
             response = await self._exception_response(exc, scope, receive, state)
             if isinstance(response, Response):
-                status, headers, body = response.status, response.headers, response.body
-            else:
-                status, headers, body = response
+                await response(scope, receive, guarded_send)
+                return
+            status, headers, body = response
             await guarded_send({"type": "http.response.start", "status": status, "headers": headers})
             await guarded_send({"type": "http.response.body", "body": body})
 
@@ -311,6 +311,10 @@ class App:
         state = scope["expose_api.request_state"]
         try:
             response = await self._dispatch(scope, receive, state)
+            if isinstance(response, Response):
+                response = await response.prepare(scope)
+                if not isinstance(response, Response):
+                    raise ConfigurationError("Response preparation must return a Response.")
         except _Disconnected:
             return
         except ProtocolError:
@@ -321,9 +325,9 @@ class App:
             await response.application(response.scope, receive, send)
             return
         if isinstance(response, Response):
-            status, headers, body = response.status, response.headers, response.body
-        else:
-            status, headers, body = response
+            await response(scope, receive, send)
+            return
+        status, headers, body = response
         await send({"type": "http.response.start", "status": status, "headers": headers})
         await send({"type": "http.response.body", "body": b"" if scope["method"] == "HEAD" else body})
 
@@ -341,6 +345,9 @@ class App:
                     response = await response
                 if not isinstance(response, Response):
                     raise ConfigurationError("Exception handlers must return an explicit Response.")
+                response = await response.prepare(scope)
+                if not isinstance(response, Response):
+                    raise ConfigurationError("Response preparation must return a Response.")
                 return response
             except (ProtocolError, _Disconnected):
                 raise
