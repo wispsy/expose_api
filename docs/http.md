@@ -102,7 +102,9 @@ resources. The child receives a copied scope/state, extended root_path and
 preserved full path/raw_path/query (relative parent paths are normalized with
 the root prefix). The child owns its authentication. Parent lifespan runs once;
 mounted child lifespans require explicit ownership in that parent lifespan.
-Mounting does not provide static-file serving or child WebSocket dispatch.
+StaticFiles supplies an explicit rooted asset application; arbitrary mounts
+do not imply file serving or child WebSocket dispatch. Named mounts support
+`request.url_for('assets', path='css/site.css')` with safe relative paths.
 
 Routes can select `authenticate=True` with an explicit authorize callback.
 The App must have authenticate and auth_challenge configured. The authenticator
