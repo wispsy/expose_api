@@ -6,6 +6,7 @@ from uuid import UUID
 from urllib.parse import quote
 
 from .errors import ConfigurationError
+from .route_docs import RouteDocs
 
 _CONVERTERS = {
     'str': (r'[^/]+', str),
@@ -30,6 +31,7 @@ class Route:
     name: str | None
     authenticate: bool
     dependencies: tuple
+    documentation: RouteDocs
 
     def match(self, path):
         matched = self.pattern.fullmatch(path)
@@ -46,7 +48,7 @@ class Route:
 
 
 def make_route(path, handler, *, methods=('GET',), public=False, authorize=None, name=None,
-               authenticate=False, dependencies=()):
+               authenticate=False, dependencies=(), docs=None):
     if (type(path) is not str or not path.startswith('/') or path.startswith('//')
             or not callable(handler) or isinstance(methods, str)):
         raise ConfigurationError('A route requires a local path, handler and method collection.')
@@ -67,6 +69,11 @@ def make_route(path, handler, *, methods=('GET',), public=False, authorize=None,
         if not any(dependency is hook for hook in hooks):
             hooks.append(dependency)
     route_name = name
+    if docs is not None and not isinstance(docs, RouteDocs):
+        raise ConfigurationError('Select RouteDocs metadata explicitly.')
+    documentation = docs.snapshot() if docs is not None else RouteDocs()
+    if authenticate and documentation._data.get('security') == []:
+        raise ConfigurationError('Authenticated routes cannot declare anonymous security.')
     expressions, parameters, shapes, static = [], [], [], []
     dynamic = False
     for index, segment in enumerate(path.split('/')[1:]):
@@ -89,7 +96,7 @@ def make_route(path, handler, *, methods=('GET',), public=False, authorize=None,
                 static.append(segment)
     return Route(path, selected, handler, authorize, re.compile('/' + '/'.join(expressions)),
                  tuple(parameters), '/' + '/'.join(shapes), ('/' + '/'.join(static)).rstrip('/'), route_name,
-                 authenticate, tuple(hooks))
+                 authenticate, tuple(hooks), documentation)
 
 
 def _prefix(prefix):
@@ -105,7 +112,7 @@ def prefixed_routes(router, prefix='', name_prefix=''):
     return [make_route(prefix + route.path, route.handler, methods=route.methods,
                        public=route.authorize is None, authorize=route.authorize,
                        name=name_prefix + route.name if route.name is not None else None,
-                       authenticate=route.authenticate, dependencies=route.dependencies)
+                       authenticate=route.authenticate, dependencies=route.dependencies, docs=route.documentation)
             for route in router._routes]
 
 
@@ -129,12 +136,12 @@ class Router:
         self._routes = combined
 
     def route(self, path, *, methods=('GET',), public=False, authorize=None, name=None,
-              authenticate=False, dependencies=()):
+              authenticate=False, dependencies=(), docs=None):
         def register(handler):
             if type(path) is not str or not path.startswith('/'):
                 raise ConfigurationError('Route paths must start with a slash.')
             self._add(make_route(self.prefix + path, handler, methods=methods, public=public,
-                                 authorize=authorize, name=name, authenticate=authenticate, dependencies=dependencies))
+                                 authorize=authorize, name=name, authenticate=authenticate, dependencies=dependencies, docs=docs))
             return handler
         return register
 

@@ -16,6 +16,7 @@ from .requests import HTTPRequest
 from .routing import Router
 from .streaming import StreamingResponse
 from .files import FileResponse
+from .route_docs import RouteDocs
 
-__all__ = ["FileResponse", "StreamingResponse", "Router", "HTTPRequest", "Response", "JSONResponse", "HTMLResponse", "RedirectResponse", "HTTPException", "EventPage", "EventSnapshot", "EventStore", "AccessDeniedError", "AccessScanError", "AccessStore", "BearerAuth", "Principal", "App", "ConfigurationError", "ConflictError", "Issue", "MemoryStore", "ModelSchema",
+__all__ = ["RouteDocs", "FileResponse", "StreamingResponse", "Router", "HTTPRequest", "Response", "JSONResponse", "HTMLResponse", "RedirectResponse", "HTTPException", "EventPage", "EventSnapshot", "EventStore", "AccessDeniedError", "AccessScanError", "AccessStore", "BearerAuth", "Principal", "App", "ConfigurationError", "ConflictError", "Issue", "MemoryStore", "ModelSchema",
            "NotFoundError", "ProtocolError", "Request", "Resource", "RevisionConflictError", "Store", "ValidationError", "serve", "TableColumn"]
