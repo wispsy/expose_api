@@ -216,8 +216,8 @@ artifacts, then runs the suite and example outside the checkout. CI runs on
 Linux, macOS and Windows. [Release preparation](https://github.com/outside-labs/expose_api/blob/main/docs/releasing.md) describes the
 separate publishing workflow.
 
-The [Project](https://github.com/orgs/outside-labs/projects/14) and
-[issues](https://github.com/outside-labs/expose_api/issues) track later SQLite,
+The [Project](https://github.com/orgs/wispsy/projects/7) and
+[issues](https://github.com/wispsy/expose_api/issues) track later SQLite,
 OpenAPI, WebSocket and optional Hidden Moves/Backpack/CLI integrations. Version
 0.1.0 does not include those features. License terms have not yet been specified.
 
