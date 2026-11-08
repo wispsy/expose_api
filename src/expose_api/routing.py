@@ -28,6 +28,8 @@ class Route:
     shape: str
     static_prefix: str
     name: str | None
+    authenticate: bool
+    dependencies: tuple
 
     def match(self, path):
         matched = self.pattern.fullmatch(path)
@@ -43,7 +45,8 @@ class Route:
                 or prefix.startswith(static + '/'))
 
 
-def make_route(path, handler, *, methods=('GET',), public=False, authorize=None, name=None):
+def make_route(path, handler, *, methods=('GET',), public=False, authorize=None, name=None,
+               authenticate=False, dependencies=()):
     if (type(path) is not str or not path.startswith('/') or path.startswith('//')
             or not callable(handler) or isinstance(methods, str)):
         raise ConfigurationError('A route requires a local path, handler and method collection.')
@@ -55,6 +58,14 @@ def make_route(path, handler, *, methods=('GET',), public=False, authorize=None,
     if name is not None and (type(name) is not str or len(name) > 128
                              or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.:-]*', name)):
         raise ConfigurationError('Route names must be bounded identifiers.')
+    if type(authenticate) is not bool or authenticate and public or isinstance(dependencies, str):
+        raise ConfigurationError('Authenticated routes require authorization and explicit request hooks.')
+    hooks = []
+    for dependency in dependencies:
+        if not callable(dependency):
+            raise ConfigurationError('Request dependencies must be callable.')
+        if not any(dependency is hook for hook in hooks):
+            hooks.append(dependency)
     route_name = name
     expressions, parameters, shapes, static = [], [], [], []
     dynamic = False
@@ -77,7 +88,8 @@ def make_route(path, handler, *, methods=('GET',), public=False, authorize=None,
             if not dynamic:
                 static.append(segment)
     return Route(path, selected, handler, authorize, re.compile('/' + '/'.join(expressions)),
-                 tuple(parameters), '/' + '/'.join(shapes), ('/' + '/'.join(static)).rstrip('/'), route_name)
+                 tuple(parameters), '/' + '/'.join(shapes), ('/' + '/'.join(static)).rstrip('/'), route_name,
+                 authenticate, tuple(hooks))
 
 
 def _prefix(prefix):
@@ -92,7 +104,8 @@ def prefixed_routes(router, prefix='', name_prefix=''):
     _prefix(prefix)
     return [make_route(prefix + route.path, route.handler, methods=route.methods,
                        public=route.authorize is None, authorize=route.authorize,
-                       name=name_prefix + route.name if route.name is not None else None)
+                       name=name_prefix + route.name if route.name is not None else None,
+                       authenticate=route.authenticate, dependencies=route.dependencies)
             for route in router._routes]
 
 
@@ -115,12 +128,13 @@ class Router:
             combined.append(route)
         self._routes = combined
 
-    def route(self, path, *, methods=('GET',), public=False, authorize=None, name=None):
+    def route(self, path, *, methods=('GET',), public=False, authorize=None, name=None,
+              authenticate=False, dependencies=()):
         def register(handler):
             if type(path) is not str or not path.startswith('/'):
                 raise ConfigurationError('Route paths must start with a slash.')
             self._add(make_route(self.prefix + path, handler, methods=methods, public=public,
-                                 authorize=authorize, name=name))
+                                 authorize=authorize, name=name, authenticate=authenticate, dependencies=dependencies))
             return handler
         return register
 
