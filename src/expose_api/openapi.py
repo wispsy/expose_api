@@ -86,6 +86,9 @@ def document(app, *, version="0.1.0", description=None):
         for suffix, methods in (("", {"get": "list", "post": "create"}),
                                 ("/{identity}", {"get": "get", "patch": "update", "delete": "delete"})):
             operations = {}
+            path_parameters = [{"name": "identity", "in": "path", "required": True,
+                                "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                                "description": "Canonical resource identity; validated by the registered model."}] if suffix else []
             for method, operation in methods.items():
                 if operation not in mount.operations:
                     continue
@@ -120,11 +123,7 @@ def document(app, *, version="0.1.0", description=None):
                     value["responses"]["401"]["headers"] = {"WWW-Authenticate": {"schema": {"type": "string"}}}
                     for response in responses.values():
                         response.setdefault("headers", {})["Cache-Control"] = {"schema": {"const": "no-store"}}
-                parameters = []
-                if suffix:
-                    parameters.append({"name": "identity", "in": "path", "required": True,
-                                       "schema": {"type": "string", "minLength": 1, "maxLength": 256},
-                                       "description": "Canonical resource identity; validated by the registered model."})
+                parameters = deepcopy(path_parameters)
                 if operation == "list":
                     parameters += [{"name": name, "in": "query", "schema": {"type": "integer", "minimum": minimum,
                                     **({"maximum": maximum} if maximum else {}), "default": default}}
@@ -148,6 +147,8 @@ def document(app, *, version="0.1.0", description=None):
                 operations["options"] = {"operationId": f"resource_{index}_{'item' if suffix else 'collection'}_options",
                                          "responses": {"204": {"description": "Allowed methods", "headers": {
                                              "Allow": {"schema": {"type": "string"}}}}}}
+                if path_parameters:
+                    operations["options"]["parameters"] = deepcopy(path_parameters)
                 if mount.record_policy is not None:
                     operations["options"]["responses"]["204"]["headers"]["Cache-Control"] = {"schema": {"const": "no-store"}}
                 paths[mount.path + suffix] = operations

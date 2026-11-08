@@ -73,6 +73,19 @@ class OpenAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("securitySchemes", spec["components"])
         self.assertEqual((await request(app, "/openapi.json")).status, 404)
 
+    def test_every_generated_item_operation_declares_the_identity_parameter(self):
+        spec = self.app.openapi()
+        item = spec['paths']['/documents/{identity}']
+        self.assertEqual(set(item), {'get', 'head', 'patch', 'delete', 'options'})
+        for operation in item.values():
+            parameters = [parameter for parameter in operation.get('parameters', []) if parameter['in'] == 'path']
+            self.assertEqual([(parameter['name'], parameter['required']) for parameter in parameters], [('identity', True)])
+        self.assertNotIn('parameters', spec['paths']['/documents']['options'])
+        selected = App()
+        selected.include(Document, store=MemoryStore(), operations={'delete'}, public=True)
+        operations = selected.openapi()['paths']['/documents/{identity}']
+        self.assertEqual(operations['delete']['parameters'], operations['options']['parameters'])
+
     def test_documents_are_fresh_and_do_not_run_model_defaults(self):
         @dataclass
         class Record:
