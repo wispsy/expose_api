@@ -15,7 +15,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULES = {"__init__.py", "access.py", "asgi.py", "composition.py", "backpack.py", "backpack_events.py", "enforce_type.py", "errors.py", "events.py", "files.py", "models.py", "multipart.py", "http_protocol.py", "requests.py", "openapi.py", "py.typed", "resources.py", "responses.py", "streaming.py", "static.py", "routing.py", "route_docs.py", "server.py", "stores.py", "tabular.py", "websocket.py"}
+MODULES = {"__init__.py", "access.py", "asgi.py", "composition.py", "backpack.py", "backpack_events.py", "enforce_type.py", "errors.py", "events.py", "files.py", "models.py", "multipart.py", "http_protocol.py", "requests.py", "openapi.py", "py.typed", "resources.py", "responses.py", "streaming.py", "static.py", "templates.py", "routing.py", "route_docs.py", "server.py", "stores.py", "tabular.py", "websocket.py"}
 
 
 def run(*args, cwd=ROOT):
@@ -63,7 +63,7 @@ def installed(artifact, work, name, version, *, requirements=None):
         "assert all('extra ==' in r for r in m.requires('expose-api')); "
         "assert pathlib.Path(expose_api.__file__).is_relative_to(pathlib.Path(sys.prefix)); "
         "assert pathlib.Path(expose_api.__file__).with_name('py.typed').is_file(); "
-        "assert not any(k in sys.modules for k in ('starlette','fastapi','pydantic','hidden_moves','backpack_store','enforce_type'))"
+        "assert not any(k in sys.modules for k in ('starlette','fastapi','pydantic','jinja2','hidden_moves','backpack_store','enforce_type'))"
     )
     if requirements is None:
         run(python, "-I", "-c", probe + "; assert __import__('importlib.util').util.find_spec('enforce_type') is None", cwd=work)

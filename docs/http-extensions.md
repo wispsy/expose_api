@@ -123,3 +123,27 @@ remain trusted and cannot be concurrently mutated by a hostile filesystem
 actor. This is a trusted deployment asset profile, not an upload publication
 service or filesystem sandbox. Use atomic file replacement and keep untrusted
 writes outside the asset tree.
+
+## Caller-owned templates
+
+`TemplateRenderer(render).response(request, name, context, status=200, headers=())`
+is asynchronous and returns HTMLResponse. A renderer receives a validated
+relative loader name and a fresh top-level context dictionary containing request
+and local url_for. Those keys cannot be overridden. A renderer may return text
+or an awaitable of text. It owns escaping, template loading, nested context
+objects and resource lifecycle, just as a caller selecting HTMLResponse owns
+the HTML it supplies. Synchronous rendering runs inline and must be bounded and
+nonblocking; preloading/caching remains caller-owned.
+
+`JinjaTemplates(environment)` accepts a caller-installed Jinja-compatible
+environment without importing or installing an engine. It requires explicit
+autoescaping, checks the selected template name and environment ownership, and
+uses render/render_async according to the environment. Keep engine configuration
+stable after first template loading. Missing templates and renderer failures are
+application errors; the ordinary redacted error boundary handles them. No
+Pretty Notebook template or application factory is changed.
+
+With Expose API and Jinja already installed in a selected environment, run
+`python scripts/check_jinja.py` to qualify synchronous/asynchronous escaping and
+local URLs. Core CI uses a structural engine fixture and does not install Jinja.
+The adapter follows Jinja's [environment, rendering and autoescape interface](https://jinja.palletsprojects.com/en/stable/api/).
