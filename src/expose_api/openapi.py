@@ -155,6 +155,6 @@ def document(app, *, version="0.1.0", description=None):
     from .tabular import openapi_paths
     paths.update(openapi_paths(app))
     components = {"schemas": schemas}
-    if isinstance(app.authenticate, BearerAuth) and any(mount.record_policy is not None for mount in app._mounts):
-        components["securitySchemes"] = {"BearerAuth": {"type": "http", "scheme": "bearer"}}
+    from .route_docs import extend_document
+    extend_document(app, paths, components)
     return deepcopy({"openapi": "3.1.0", "info": info, "paths": paths, "components": components})

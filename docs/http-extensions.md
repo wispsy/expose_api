@@ -44,3 +44,30 @@ Metadata and bytes come from the same open file. Applications should replace
 assets atomically; modifying an open file in place can change its contents or
 trigger a post-start length error. The response is not a filesystem snapshot.
 The selected conditional/range behavior follows [HTTP semantics](https://www.rfc-editor.org/rfc/rfc9110.html).
+
+## Custom-route OpenAPI
+
+Pass `docs=RouteDocs(summary='Read item', operation_id='read_item', ...)` to an
+App/Router route. Defaults describe explicit methods and a generic 200 response.
+Select request_body, responses, query/header/cookie parameters, tags, description
+and security as OpenAPI JSON metadata. Path parameters come from converters;
+int is nonnegative with the runtime's 20-digit bound, UUID has uuid format and
+path includes x-path-converter. `include=False` hides a registration, including
+explicit HEAD/OPTIONS. Generated HEAD has no response content. Arbitrary HTTP
+methods remain usable and appear in x-http-methods rather than invalid OAS keys.
+
+Metadata is copied at construction, registration and document generation.
+Schemas are descriptive; handlers still own validation and actual status/shape.
+One documented converter contract per normalized path and globally unique
+operation IDs are required. A multi-method explicit ID receives method suffixes.
+Hidden converter variants remain a runtime configuration choice.
+
+Selected BearerAuth route authentication describes its scheme, 401 challenge,
+403 and protected no-store policy. Other caller-owned schemes can be declared
+with `app.openapi_security_scheme(name, definition)` and selected through
+RouteDocs.security. Declarations never install authentication. Undefined scheme
+references, duplicate IDs and incompatible metadata fail instead of emitting
+ambiguous documents. Resource schemas and opt-in tabular paths are retained.
+No documentation URL is automatically published.
+
+The projection retains [OpenAPI 3.1.0](https://spec.openapis.org/oas/v3.1.0.html).

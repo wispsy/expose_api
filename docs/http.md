@@ -69,8 +69,9 @@ boolean authorize callback evaluated before the handler/body reader. Protected
 results and errors use no-store. HTTPException uses the existing error envelope
 with code http_error. Unexpected failures remain redacted.
 
-`app.openapi()` currently describes resources; custom-route metadata is tracked
-separately by WEB-09. Handler registration does not infer validation schemas.
+`app.openapi()` describes resources and custom HTTP routes. RouteDocs selects
+explicit metadata, schemas and visibility; registration does not infer or install
+validation schemas. See [custom-route documentation](http-extensions.md).
 
 Use `Router(prefix='/api')` with the same route decorator, then
 `app.include_router(router, prefix='/v1', name_prefix='v1:')`. Routers can include

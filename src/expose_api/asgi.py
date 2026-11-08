@@ -124,6 +124,17 @@ class App:
         self._middleware = []
         self._asgi_application = None
         self._exception_handlers = {}
+        self._security_schemes = {}
+
+    def openapi_security_scheme(self, name, definition):
+        """Register descriptive security metadata without installing authentication."""
+        from .route_docs import security_scheme
+        if self._frozen:
+            raise ConfigurationError("Register security schemes before serving.")
+        selected = security_scheme(name, definition)
+        if name in self._security_schemes:
+            raise ConfigurationError("Register security scheme names once before serving.")
+        self._security_schemes[name] = selected
 
     def exception_handler(self, exception_type):
         """Register a request/exception handler returning an explicit Response."""
@@ -154,13 +165,13 @@ class App:
         self._applications.append((path, application))
 
     def route(self, path, *, methods=("GET",), public=False, authorize=None, name=None,
-              authenticate=False, dependencies=()):
+              authenticate=False, dependencies=(), docs=None):
         """Register a handler receiving one HTTPRequest and returning a Response."""
         def register(handler):
             if self._frozen:
                 raise ConfigurationError("Register routes before serving the application.")
             route = make_route(path, handler, methods=methods, public=public, authorize=authorize, name=name,
-                               authenticate=authenticate, dependencies=dependencies)
+                               authenticate=authenticate, dependencies=dependencies, docs=docs)
             if route.authenticate and self.authenticate is None:
                 raise ConfigurationError("Authenticated routes require an application authenticator.")
             if (any(route.overlaps(mount.path) for mount in self._mounts)
