@@ -5,7 +5,7 @@ import inspect
 
 from .errors import ConfigurationError
 from .http_protocol import ProtocolError
-from .responses import Response, _headers
+from .responses import Response, _framed_headers, _headers
 
 
 class StreamingResponse(Response):
@@ -32,6 +32,24 @@ class StreamingResponse(Response):
         except TypeError:
             raise ConfigurationError('Content must supply a synchronous or asynchronous byte iterator.') from None
         self.chunk_size, self.content_length, self._used = chunk_size, content_length, False
+
+    def _validated_headers(self):
+        if (type(self.status) is not int or not 200 <= self.status <= 599 or self.status in (204, 205, 304)
+                or type(self.chunk_size) is not int or not 1 <= self.chunk_size <= 1024 * 1024
+                or self.content_length is not None
+                and (type(self.content_length) is not int or self.content_length < 0)):
+            raise ConfigurationError('Choose bounded chunks, a valid length and a content-bearing status.')
+        return _framed_headers(self.headers, self.status, self.content_length)
+
+    async def prepare(self, scope):
+        if self._used:
+            raise ConfigurationError('Streaming responses are single-use.')
+        try:
+            return await super().prepare(scope)
+        except BaseException:
+            self._used = True
+            await self._close()
+            raise
 
     async def _close(self):
         close = getattr(self._iterator, 'aclose', None) or getattr(self._iterator, 'close', None)
@@ -74,7 +92,8 @@ class StreamingResponse(Response):
         self._used = True
         tasks = []
         try:
-            await send({'type': 'http.response.start', 'status': self.status, 'headers': list(self.headers)})
+            headers = self._validated_headers()
+            await send({'type': 'http.response.start', 'status': self.status, 'headers': headers})
             if scope['method'] == 'HEAD':
                 await send({'type': 'http.response.body', 'body': b''})
                 return
