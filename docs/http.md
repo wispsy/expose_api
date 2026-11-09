@@ -10,7 +10,9 @@ following bounded file/upload/composition profiles.
 or UTF-8 text. Headers may be a dictionary or ordered pairs; repeated pairs
 are preserved. Response owns Content-Length and rejects conflicting framing
 and header injection. HEAD retains headers and suppresses the body; 204, 205
-and 304 reject nonempty content. Transport errors propagate to the server.
+and 304 reject nonempty content. Final status, headers and framing are checked
+again before response-start, including edits made after construction. Invalid
+stream edits also close the owned source. Transport errors propagate to the server.
 
 `JSONResponse(value)` emits compact UTF-8 JSON and rejects non-finite numbers.
 `HTMLResponse(text)` marks trusted HTML; escaping remains the renderer's job.

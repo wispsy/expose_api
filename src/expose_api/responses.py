@@ -15,17 +15,29 @@ _EMPTY = frozenset({204, 205, 304})
 
 def _headers(values):
     result = []
-    for name, value in values.items() if isinstance(values, dict) else values:
-        try:
+    try:
+        for name, value in values.items() if isinstance(values, dict) else values:
             name = name.encode('ascii') if isinstance(name, str) else name
             value = value.encode('latin-1') if isinstance(value, str) else value
             if (type(name) is not bytes or not _TOKEN.fullmatch(name)
                     or type(value) is not bytes or any(byte < 32 or byte == 127 for byte in value)):
                 raise ValueError
-        except (UnicodeError, ValueError):
-            raise ConfigurationError('Invalid HTTP response header.') from None
-        result.append((name.lower(), value))
+            result.append((name.lower(), value))
+    except (UnicodeError, ValueError, TypeError):
+        raise ConfigurationError('Invalid HTTP response header.') from None
     return result
+
+
+def _framed_headers(values, status, length):
+    headers = _headers(values)
+    lengths = [value for key, value in headers if key == b'content-length']
+    if (any(key == b'transfer-encoding' for key, _ in headers)
+            or len(lengths) > 1 or lengths and (length is None or lengths != [str(length).encode()])
+            or status in (204, 304) and lengths):
+        raise ConfigurationError('Response framing is owned by the response.')
+    if not lengths and length is not None and status not in (204, 304):
+        headers.append((b'content-length', str(length).encode()))
+    return headers
 
 
 class Response:
@@ -41,14 +53,7 @@ class Response:
         if status in _EMPTY and content:
             raise ConfigurationError('This response status does not permit content.')
         self.status, self.body = status, content
-        self.headers = _headers(headers)
-        lengths = [value for key, value in self.headers if key == b'content-length']
-        if (any(key == b'transfer-encoding' for key, _ in self.headers)
-                or len(lengths) > 1 or lengths and lengths != [str(len(content)).encode()]
-                or status in (204, 304) and lengths):
-            raise ConfigurationError('Response framing is owned by the response.')
-        if not lengths and status not in (204, 304):
-            self.headers.append((b'content-length', str(len(content)).encode()))
+        self.headers = _framed_headers(headers, status, len(content))
         if media_type is not None and not any(key == b'content-type' for key, _ in self.headers):
             self.headers.extend(_headers((('content-type', media_type),)))
 
@@ -87,13 +92,25 @@ class Response:
     def delete_cookie(self, name, **options):
         self.set_cookie(name, '', max_age=0, expires=datetime(1970, 1, 1, tzinfo=timezone.utc), **options)
 
+    def _validated_headers(self):
+        if type(self.status) is not int or not 200 <= self.status <= 599:
+            raise ConfigurationError('Response status must be between 200 and 599.')
+        if type(self.body) is not bytes:
+            raise ConfigurationError('Response content must be bytes.')
+        if self.status in _EMPTY and self.body:
+            raise ConfigurationError('This response status does not permit content.')
+        return _framed_headers(self.headers, self.status, len(self.body))
+
     async def prepare(self, scope):
         """Resolve a response before headers start; subclasses may own preflight I/O."""
+        self.headers = self._validated_headers()
         return self
 
     async def __call__(self, scope, receive, send):
-        await send({'type': 'http.response.start', 'status': self.status, 'headers': list(self.headers)})
-        await send({'type': 'http.response.body', 'body': b'' if scope['method'] == 'HEAD' else self.body})
+        headers = self._validated_headers()
+        status, body = self.status, self.body
+        await send({'type': 'http.response.start', 'status': status, 'headers': headers})
+        await send({'type': 'http.response.body', 'body': b'' if scope['method'] == 'HEAD' else body})
 
 
 class JSONResponse(Response):
