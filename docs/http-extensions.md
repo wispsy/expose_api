@@ -18,6 +18,9 @@ does not impose a total duration; the caller/server owns its deadline.
 If sending and receiving finish together, both results are inspected. A receive
 failure remains visible after successful sending; a simultaneous send/producer
 failure retains precedence. Cleanup still closes the source once.
+Child-task draining and source closure run as one owned cleanup task. Further
+request cancellation waits for that cleanup, including failed preparation,
+before propagating; source cleanup must itself finish or own its deadline.
 
 Response.prepare(scope) runs before response-start and may return a selected
 Response. Application errors during preparation use the ordinary error boundary.

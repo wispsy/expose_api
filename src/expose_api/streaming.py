@@ -4,7 +4,7 @@ import asyncio
 import inspect
 
 from .errors import ConfigurationError
-from .http_protocol import ProtocolError, _request_event
+from .http_protocol import ProtocolError, _request_event, _settle_task
 from .responses import Response, _framed_headers, _headers
 
 
@@ -48,7 +48,7 @@ class StreamingResponse(Response):
             return await super().prepare(scope)
         except BaseException:
             self._used = True
-            await self._close()
+            await self._finish_cleanup(())
             raise
 
     async def _close(self):
@@ -57,6 +57,27 @@ class StreamingResponse(Response):
             result = close()
             if inspect.isawaitable(result):
                 await result
+
+    async def _cleanup(self, tasks):
+        try:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+        finally:
+            await self._close()
+
+    async def _finish_cleanup(self, tasks):
+        cleanup = asyncio.create_task(self._cleanup(tasks))
+        try:
+            await asyncio.wait((cleanup,))
+        except asyncio.CancelledError:
+            try:
+                await _settle_task(cleanup)
+            except Exception:
+                pass
+            raise
+        cleanup.result()
 
     async def _stream(self, send):
         sent = 0
@@ -104,8 +125,4 @@ class StreamingResponse(Response):
             if listener.done():
                 listener.result()
         finally:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            await self._close()
+            await self._finish_cleanup(tasks)

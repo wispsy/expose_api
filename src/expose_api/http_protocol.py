@@ -1,5 +1,7 @@
 """Shared HTTP event and failure boundaries."""
 
+import asyncio
+
 
 class ProtocolError(RuntimeError):
     """The ASGI server supplied an invalid protocol event."""
@@ -12,6 +14,16 @@ class _Disconnected(Exception):
 class _HTTPError(Exception):
     def __init__(self, status, code, message, *, headers=()):
         self.status, self.code, self.message, self.headers = status, code, message, headers
+
+
+async def _settle_task(task):
+    """Finish an owned task despite further request cancellations."""
+    while not task.done():
+        try:
+            await asyncio.wait((task,))
+        except asyncio.CancelledError:
+            continue
+    return task.result()
 
 
 def _request_event(event):

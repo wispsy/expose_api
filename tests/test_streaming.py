@@ -163,6 +163,46 @@ class StreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(caught.exception, failure)
         self.assertTrue(source.closed)
 
+    async def test_repeated_cancellation_waits_for_source_cleanup(self):
+        for mode in ('stream', 'preparation'):
+            with self.subTest(mode=mode):
+                source = Source(block=mode == 'stream')
+                started, release = asyncio.Event(), asyncio.Event()
+                original_close = source.aclose
+                async def close():
+                    started.set()
+                    await release.wait()
+                    await original_close()
+                source.aclose = close
+                response = StreamingResponse(source)
+                async def receive():
+                    await asyncio.Future()
+                async def send(event):
+                    pass
+                if mode == 'preparation':
+                    response.headers.append((b'content-length', b'1'))
+                    task = asyncio.create_task(response.prepare({'method': 'GET'}))
+                else:
+                    task = asyncio.create_task(response({'method': 'GET'}, receive, send))
+                try:
+                    if mode == 'stream':
+                        await asyncio.wait_for(source.started.wait(), 5)
+                        task.cancel()
+                    await asyncio.wait_for(started.wait(), 5)
+                    for _ in range(3):
+                        task.cancel()
+                        await asyncio.sleep(0)
+                        await asyncio.sleep(0)
+                        self.assertFalse(task.done())
+                        self.assertFalse(source.closed)
+                    release.set()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await task
+                    self.assertEqual(source.closes, 1)
+                finally:
+                    release.set()
+                    await asyncio.gather(task, return_exceptions=True)
+
     async def test_mutated_stream_headers_fail_before_start_and_close_the_source(self):
         for mode in ('direct', 'app', 'exception'):
             for mutation in ({'headers': [(b'x-private', b'private\r\ninjected: yes')]},
