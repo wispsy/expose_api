@@ -71,6 +71,29 @@ class FileTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((head.status, head.headers[b'content-length']), (200, b'10'))
         self.assertEqual((await request(app, '/file', headers=[(b'range', b'items=1-2')], hold=True)).status, 200)
 
+    async def test_repeated_none_match_fields_keep_precedence_and_aggregate_limits(self):
+        app = self.app()
+        first = await request(app, '/file', hold=True)
+        etag, modified = first.headers[b'etag'], first.headers[b'last-modified']
+        for method in ('GET', 'HEAD'):
+            result = await request(app, '/file', method, hold=True,
+                                   headers=[(b'if-none-match', b'"other"'), (b'If-None-Match', etag)])
+            self.assertEqual((result.status, result.body), (304, b''))
+            self.assertNotIn(b'content-length', result.headers)
+        cases = [(b'"one"', b'"two"'), (b'invalid', etag), (b'*', etag),
+                 (b'"' + b'x' * 4096 + b'"', etag + b', "' + b'y' * 4096 + b'"'),
+                 (b', '.join([b'"old"'] * 128), etag)]
+        for values in cases:
+            with self.subTest(values=values):
+                result = await request(app, '/file', hold=True,
+                                       headers=[*((b'if-none-match', value) for value in values),
+                                                (b'if-modified-since', modified)])
+                self.assertEqual((result.status, result.body), (200, b'0123456789'))
+        duplicate_dates = await request(app, '/file', hold=True,
+                                        headers=[(b'if-modified-since', modified)] * 2)
+        self.assertEqual(duplicate_dates.status, 200)
+        self.assertTrue(all(file.closed for file in self.opened))
+
     async def test_empty_missing_and_preparation_errors(self):
         self.path.write_bytes(b'')
         self.assertEqual((await request(self.app(), '/file', hold=True)).body, b'')
