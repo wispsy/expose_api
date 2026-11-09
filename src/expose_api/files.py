@@ -69,12 +69,13 @@ def _date(value):
 
 
 def _unchanged(context, etag, modified):
-    none_match = context.header('if-none-match')
-    if none_match is not None:
+    values = context.headers.getlist('if-none-match')
+    if values:
+        if sum(map(len, values)) + 2 * (len(values) - 1) > 8192:
+            return False
+        none_match = ', '.join(values)
         if none_match.strip() == '*':
             return True
-        if len(none_match) > 8192:
-            return False
         tag = r'(?:W/)?"[^"\x00-\x20\x7f]*"'
         if not re.fullmatch(r'\s*' + tag + r'(?:\s*,\s*' + tag + r')*\s*', none_match):
             return False
