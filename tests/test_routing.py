@@ -82,6 +82,15 @@ class RoutingTests(unittest.IsolatedAsyncioTestCase):
         with self.assertLogs('expose_api', 'ERROR'):
             self.assertEqual((await request(bad, '/bad')).status, 500)
 
+    async def test_malformed_media_parameters_fail_before_body_dispatch(self):
+        app = App()
+        @app.route('/echo', methods=('POST',), public=True)
+        async def echo(context):
+            return JSONResponse(await context.json())
+        result = await request(app, '/echo', 'POST', body=b'{}',
+                               headers=[(b'content-type', b'application/json; charset="utf-8')])
+        self.assertEqual((result.status, result.reads, result.json['error']['code']), (415, 0, 'media_type'))
+
     async def test_resource_and_tabular_namespaces_remain_owned(self):
         app = App()
         app.include(Note, store=MemoryStore(), public=True)
