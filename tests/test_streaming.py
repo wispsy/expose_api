@@ -127,6 +127,40 @@ class StreamingTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(source.closed)
                 self.assertEqual([message['type'] for message in messages], ['http.response.start'])
 
+    async def test_completed_sender_does_not_hide_a_receive_failure(self):
+        for failure in (None, OSError('receive closed')):
+            with self.subTest(failure=failure):
+                source, messages, closed = Source([]), [], []
+                original_close = source.aclose
+                async def close():
+                    closed.append(True)
+                    await original_close()
+                source.aclose = close
+                async def receive():
+                    if failure is not None:
+                        raise failure
+                    return {}
+                async def send(event):
+                    messages.append(event)
+                with self.assertRaises(ProtocolError if failure is None else OSError):
+                    await StreamingResponse(source)({'method': 'GET'}, receive, send)
+                self.assertFalse(messages[-1]['more_body'])
+                self.assertEqual(closed, [True])
+                self.assertTrue(source.closed)
+
+    async def test_simultaneous_send_failure_keeps_its_original_exception(self):
+        source = Source([])
+        failure = OSError('send closed')
+        async def receive():
+            raise ProtocolError('invalid receive')
+        async def send(event):
+            if event['type'] == 'http.response.body':
+                raise failure
+        with self.assertRaises(OSError) as caught:
+            await StreamingResponse(source)({'method': 'GET'}, receive, send)
+        self.assertIs(caught.exception, failure)
+        self.assertTrue(source.closed)
+
     async def test_real_development_server_stream(self):
         app = App()
         app.route('/stream', public=True)(lambda r: StreamingResponse([b'one', b'two']))
