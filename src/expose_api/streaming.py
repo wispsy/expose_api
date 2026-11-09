@@ -82,7 +82,7 @@ class StreamingResponse(Response):
             await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             if sender.done():
                 sender.result()
-            else:
+            if listener.done():
                 listener.result()
         finally:
             for task in tasks:
