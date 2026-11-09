@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from expose_api import App, ConfigurationError, FileResponse, ProtocolError
+from expose_api.files import _io
 from asgi_client import request
 
 
@@ -71,6 +72,29 @@ class FileTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((head.status, head.headers[b'content-length']), (200, b'10'))
         self.assertEqual((await request(app, '/file', headers=[(b'range', b'items=1-2')], hold=True)).status, 200)
 
+    async def test_repeated_none_match_fields_keep_precedence_and_aggregate_limits(self):
+        app = self.app()
+        first = await request(app, '/file', hold=True)
+        etag, modified = first.headers[b'etag'], first.headers[b'last-modified']
+        for method in ('GET', 'HEAD'):
+            result = await request(app, '/file', method, hold=True,
+                                   headers=[(b'if-none-match', b'"other"'), (b'If-None-Match', etag)])
+            self.assertEqual((result.status, result.body), (304, b''))
+            self.assertNotIn(b'content-length', result.headers)
+        cases = [(b'"one"', b'"two"'), (b'invalid', etag), (b'*', etag),
+                 (b'"' + b'x' * 4096 + b'"', etag + b', "' + b'y' * 4096 + b'"'),
+                 (b', '.join([b'"old"'] * 128), etag)]
+        for values in cases:
+            with self.subTest(values=values):
+                result = await request(app, '/file', hold=True,
+                                       headers=[*((b'if-none-match', value) for value in values),
+                                                (b'if-modified-since', modified)])
+                self.assertEqual((result.status, result.body), (200, b'0123456789'))
+        duplicate_dates = await request(app, '/file', hold=True,
+                                        headers=[(b'if-modified-since', modified)] * 2)
+        self.assertEqual(duplicate_dates.status, 200)
+        self.assertTrue(all(file.closed for file in self.opened))
+
     async def test_empty_missing_and_preparation_errors(self):
         self.path.write_bytes(b'')
         self.assertEqual((await request(self.app(), '/file', hold=True)).body, b'')
@@ -115,6 +139,79 @@ class FileTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await task
         self.assertTrue(self.opened[-1].closed)
+
+    async def test_repeated_cancellation_keeps_open_owned_until_the_worker_returns(self):
+        started, release, finished = threading.Event(), threading.Event(), threading.Event()
+        def delayed(path):
+            file = self.opener(path)
+            started.set()
+            release.wait(10)
+            finished.set()
+            return file
+        task = asyncio.create_task(FileResponse(self.path, _opener=delayed).prepare({'method': 'GET'}))
+        try:
+            self.assertTrue(await asyncio.to_thread(started.wait, 5))
+            for _ in range(3):
+                task.cancel()
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+                self.assertFalse(task.done())
+                self.assertFalse(self.opened[-1].closed)
+            release.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertTrue(finished.is_set())
+            self.assertTrue(self.opened[-1].closed)
+        finally:
+            release.set()
+            await asyncio.gather(task, return_exceptions=True)
+            await asyncio.to_thread(finished.wait, 5)
+            for file in self.opened:
+                file.close()
+
+    async def test_repeated_cancellation_finishes_io_before_caller_cleanup(self):
+        loop, errors = asyncio.get_running_loop(), []
+        self.addCleanup(loop.set_exception_handler, loop.get_exception_handler())
+        loop.set_exception_handler(lambda loop, context: errors.append(context))
+        for fail in (False, True):
+            with self.subTest(fail=fail):
+                started, release, finished = threading.Event(), threading.Event(), threading.Event()
+                file, cleanup = self.opener(self.path), []
+                def delayed_read():
+                    started.set()
+                    release.wait(10)
+                    try:
+                        if fail:
+                            raise OSError('worker failure after cancellation')
+                        return file.read()
+                    finally:
+                        finished.set()
+                async def operation():
+                    try:
+                        await _io(delayed_read)
+                    finally:
+                        cleanup.append(finished.is_set())
+                        file.close()
+                task = asyncio.create_task(operation())
+                try:
+                    self.assertTrue(await asyncio.to_thread(started.wait, 5))
+                    for _ in range(3):
+                        task.cancel()
+                        await asyncio.sleep(0)
+                        await asyncio.sleep(0)
+                        self.assertFalse(task.done())
+                        self.assertFalse(file.closed)
+                    release.set()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await task
+                    self.assertEqual(cleanup, [True])
+                    self.assertTrue(file.closed)
+                finally:
+                    release.set()
+                    await asyncio.gather(task, return_exceptions=True)
+                    await asyncio.to_thread(finished.wait, 5)
+                    file.close()
+        self.assertEqual(errors, [])
 
     def test_configuration(self):
         for options in ({'filename': '../bad'}, {'filename': 'bad\nname'}, {'headers': {'etag': 'caller'}}, {'chunk_size': 0}):

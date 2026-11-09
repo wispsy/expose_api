@@ -35,6 +35,9 @@ class StaticTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b'must-revalidate', result.headers[b'cache-control'])
         cached = await request(app, '/static/css/site.css', headers=[(b'if-none-match', result.headers[b'etag'])])
         self.assertEqual(cached.status, 304)
+        repeated = await request(app, '/static/css/site.css',
+                                 headers=[(b'if-none-match', b'"old"'), (b'if-none-match', result.headers[b'etag'])])
+        self.assertEqual(repeated.status, 304)
         partial = await request(app, '/static/css/site.css', headers=[(b'range', b'bytes=0-3')], hold=True)
         self.assertEqual((partial.status, partial.body), (206, b'body'))
         head = await request(app, '/static/css/site.css', 'HEAD')

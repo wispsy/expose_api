@@ -1,5 +1,6 @@
 import asyncio
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -128,6 +129,50 @@ class MultipartTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await task
         self.assertTrue(self.spooled and all(file.closed for file in self.spooled))
+
+    async def test_repeated_cancellation_finishes_spooling_before_closing(self):
+        started, release, finished = threading.Event(), threading.Event(), threading.Event()
+        cleanup = []
+        factory = tempfile.SpooledTemporaryFile
+        class DelayedWrite:
+            def __init__(self, file):
+                self.file = file
+            def __getattr__(self, name):
+                return getattr(self.file, name)
+            def write(self, data):
+                started.set()
+                release.wait(10)
+                try:
+                    return self.file.write(data)
+                finally:
+                    finished.set()
+            def close(self):
+                cleanup.append(finished.is_set())
+                return self.file.close()
+        def delayed(*args, **kwargs):
+            return DelayedWrite(factory(*args, **kwargs))
+        with patch('expose_api.multipart.tempfile.SpooledTemporaryFile', delayed):
+            task = asyncio.create_task(request(self.app(), '/upload', 'POST',
+                                               body=form_body([(FILE, b'content')]), headers=HEADERS))
+            try:
+                self.assertTrue(await asyncio.to_thread(started.wait, 5))
+                for _ in range(3):
+                    task.cancel()
+                    await asyncio.sleep(0)
+                    await asyncio.sleep(0)
+                    self.assertFalse(task.done())
+                    self.assertFalse(self.spooled[-1].closed)
+                release.set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+                self.assertEqual(cleanup, [True])
+                self.assertTrue(all(file.closed for file in self.spooled))
+            finally:
+                release.set()
+                await asyncio.gather(task, return_exceptions=True)
+                await asyncio.to_thread(finished.wait, 5)
+                for file in self.spooled:
+                    file.close()
 
     async def test_authorization_and_media_fail_before_body(self):
         app = self.app()

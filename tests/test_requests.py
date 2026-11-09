@@ -79,6 +79,26 @@ class RequestTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(_HTTPError):
             await request.form()
 
+    async def test_media_parameters_require_complete_unambiguous_syntax(self):
+        for parser, media, body in (('json', b'application/json', b'{}'),
+                                    ('form', b'application/x-www-form-urlencoded', b'a=one')):
+            for suffix in (b'; charset="utf-8', b'; charset=utf-8"', b'; charset=""utf-8""',
+                           b'; charset="utf-8"junk', b'; charset', b'; other',
+                           b'; other="unterminated', b'; other=value; OTHER=again',
+                           b'; charset=utf-8; CHARSET="UTF-8"', b'; other=bad\x00value'):
+                context, reads, _ = reader(body=body, headers=[(b'content-type', media + suffix)])
+                with self.subTest(parser=parser, suffix=suffix):
+                    with self.assertRaises(_HTTPError) as caught:
+                        await getattr(context, parser)()
+                    self.assertEqual((caught.exception.status, len(reads)), (415, 0))
+                    self.assertNotIn('unterminated', caught.exception.message)
+            for suffix in (b'; charset="UTF-8"', b'; other="semi;colon"; charset=utf8',
+                           b'; other="escaped\\\"quote"; charset = UTF-8', b'; charset="utf\\-8"'):
+                context, reads, _ = reader(body=body, headers=[(b'content-type', media + suffix)])
+                with self.subTest(parser=parser, suffix=suffix):
+                    self.assertIsNotNone(await getattr(context, parser)())
+                    self.assertEqual(len(reads), 1)
+
     async def test_disconnect_bad_events_cancellation_and_concurrent_reader(self):
         for event, exception in (({'type': 'http.disconnect'}, _Disconnected),
                                  ({'type': 'http.request', 'body': 'text'}, ProtocolError),

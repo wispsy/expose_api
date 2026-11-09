@@ -10,6 +10,7 @@ class Source:
         self.chunks = iter(chunks)
         self.started = asyncio.Event()
         self.closed = False
+        self.closes = 0
         self.block = block
         self.iterations = 0
 
@@ -28,6 +29,7 @@ class Source:
 
     async def aclose(self):
         self.closed = True
+        self.closes += 1
 
 
 class StreamingTests(unittest.IsolatedAsyncioTestCase):
@@ -160,6 +162,37 @@ class StreamingTests(unittest.IsolatedAsyncioTestCase):
             await StreamingResponse(source)({'method': 'GET'}, receive, send)
         self.assertIs(caught.exception, failure)
         self.assertTrue(source.closed)
+
+    async def test_mutated_stream_headers_fail_before_start_and_close_the_source(self):
+        for mode in ('direct', 'app', 'exception'):
+            for mutation in ({'headers': [(b'x-private', b'private\r\ninjected: yes')]},
+                             {'headers': [(b'content-length', b'99')]}, {'status': 204},
+                             {'content_length': True}, {'chunk_size': 0}):
+                with self.subTest(mode=mode, mutation=mutation):
+                    source = Source([b'x'])
+                    response = StreamingResponse(source, content_length=1)
+                    for name, value in mutation.items():
+                        setattr(response, name, value)
+                    if mode == 'direct':
+                        messages = []
+                        async def send(event):
+                            messages.append(event)
+                        with self.assertRaises(ConfigurationError):
+                            await response({'method': 'GET'}, None, send)
+                        self.assertEqual(messages, [])
+                    else:
+                        app = App()
+                        if mode == 'exception':
+                            @app.route('/bad', public=True)
+                            def fail(context):
+                                raise LookupError('private')
+                            app.exception_handler(LookupError)(lambda r, exc: response)
+                        else:
+                            app.route('/bad', public=True)(lambda r: response)
+                        with self.assertLogs('expose_api', 'ERROR'):
+                            result = await request(app, '/bad')
+                        self.assertEqual(result.status, 500)
+                    self.assertEqual((source.iterations, source.closes), (0, 1))
 
     async def test_real_development_server_stream(self):
         app = App()

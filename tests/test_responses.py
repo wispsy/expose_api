@@ -1,7 +1,7 @@
 import math
 import unittest
 
-from expose_api import ConfigurationError, HTMLResponse, HTTPException, JSONResponse, RedirectResponse, Response
+from expose_api import App, ConfigurationError, HTMLResponse, HTTPException, JSONResponse, RedirectResponse, Response
 from asgi_client import request
 
 
@@ -60,3 +60,44 @@ class ResponseTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(OSError):
             await Response(b'body')({'method': 'GET'}, None, send)
         self.assertEqual(len(messages), 1)
+
+    async def test_mutated_responses_fail_before_start_and_are_sanitized_in_app(self):
+        mutations = ({'headers': [(b'x-private', b'private\r\ninjected: yes')]},
+                     {'headers': None}, {'headers': [(b'x-incomplete',)]},
+                     {'headers': [(b'content-length', b'99')]},
+                     {'headers': [(b'content-length', b'1')] * 2},
+                     {'headers': [(b'transfer-encoding', b'chunked')]},
+                     {'body': b'changed'}, {'body': 'text'}, {'status': 204}, {'status': True})
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                response = Response(b'x')
+                for name, value in mutation.items():
+                    setattr(response, name, value)
+                messages = []
+                async def send(event):
+                    messages.append(event)
+                with self.assertRaises(ConfigurationError):
+                    await response({'method': 'GET'}, None, send)
+                self.assertEqual(messages, [])
+                app = App()
+                app.route('/bad', public=True)(lambda r: response)
+                with self.assertLogs('expose_api', 'ERROR'):
+                    result = await request(app, '/bad')
+                self.assertEqual((result.status, result.json['error']['code']), (500, 'internal'))
+                self.assertNotIn(b'private', result.body)
+        valid = Response(b'x')
+        valid.headers = [(b'X-Tag', b'one'), (b'x-tag', b'two')]
+        valid.set_cookie('session', 'value')
+        result = await request(valid)
+        self.assertEqual((result.body, result.headers[b'content-length']), (b'x', b'1'))
+        self.assertEqual(result.messages[0]['headers'][:2], [(b'x-tag', b'one'), (b'x-tag', b'two')])
+
+    async def test_sending_uses_the_validated_body_snapshot(self):
+        response = Response(b'original')
+        messages = []
+        async def send(event):
+            messages.append(event)
+            if event['type'] == 'http.response.start':
+                response.body = b'changed after headers'
+        await response({'method': 'GET'}, None, send)
+        self.assertEqual(messages[1]['body'], b'original')

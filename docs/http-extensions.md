@@ -33,11 +33,17 @@ nonregular files return a public 404 without the path. FileResponse is single-us
 it transfers descriptor ownership to its stream, including HEAD, and reconciles
 pending thread I/O before closing on cancellation. It does not root a directory
 or prohibit caller-selected symlinks; StaticFiles owns those constraints.
+Repeated cancellation also waits for an in-flight open/read/close to settle
+before releasing its descriptor, then propagates cancellation. Upload spooling
+uses the same ownership rule for thread-backed writes and cleanup.
 
 MIME type is inferred with an octet-stream fallback. Download names use safe
 ASCII fallback and UTF-8 filename* parameters. Metadata includes Last-Modified,
 Accept-Ranges and a weak mtime/size ETag, which is not a content hash. GET/HEAD
 honor If-None-Match before If-Modified-Since; 304 omits body and Content-Length.
+Repeated If-None-Match fields form one ordered list, bounded to 8 KiB and 128
+tags. Their presence suppresses date fallback even if malformed or over limits;
+ambiguous repeated singleton dates are ignored.
 GET supports one closed, open-ended or suffix byte range. Unsatisfiable,
 malformed or multiple byte ranges return 416 with bytes */size. Other units are
 ignored. HEAD ignores Range. If-Range accepts a current HTTP date; weak validators

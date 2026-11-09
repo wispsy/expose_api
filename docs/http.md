@@ -10,7 +10,9 @@ following bounded file/upload/composition profiles.
 or UTF-8 text. Headers may be a dictionary or ordered pairs; repeated pairs
 are preserved. Response owns Content-Length and rejects conflicting framing
 and header injection. HEAD retains headers and suppresses the body; 204, 205
-and 304 reject nonempty content. Transport errors propagate to the server.
+and 304 reject nonempty content. Final status, headers and framing are checked
+again before response-start, including edits made after construction. Invalid
+stream edits also close the owned source. Transport errors propagate to the server.
 
 `JSONResponse(value)` emits compact UTF-8 JSON and rejects non-finite numbers.
 `HTMLResponse(text)` marks trusted HTML; escaping remains the renderer's job.
@@ -35,7 +37,10 @@ UTF-8 decoding. Cookies allow one Cookie header of at most 8 KiB.
 `await request.body()` consumes bounded ASGI events once and caches the bytes.
 It checks actual size and Content-Length. `json()` shares the resource JSON
 rules; `form()` supports UTF-8 urlencoded forms with 128 fields. Both validate
-media type before reading. Multipart uses the separately selected bounded
+media type before reading, including complete token/quoted-string parameters,
+unique parameter names and a UTF-8 charset. Unknown well-formed parameters do
+not select a different parser. Malformed parameters return 415 before consuming
+the body. Multipart uses the separately selected bounded
 profile below; unbounded request streaming remains separate. Concurrent readers
 fail, and a failed, disconnected or canceled reader
 cannot restart consumption. A route uses its application's max_body_size.

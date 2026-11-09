@@ -15,14 +15,25 @@ from .responses import HTTPException, Response, _headers
 from .streaming import StreamingResponse
 
 
+async def _settle_io(task):
+    """Keep a worker's result owned while further request cancellations arrive."""
+    while not task.done():
+        try:
+            await asyncio.wait((task,))
+        except asyncio.CancelledError:
+            continue
+    return task.result()
+
+
 async def _io(function, *args):
     """Finish an in-flight file operation before its descriptor can be closed."""
     task = asyncio.create_task(asyncio.to_thread(function, *args))
     try:
-        return await asyncio.shield(task)
+        await asyncio.wait((task,))
+        return task.result()
     except asyncio.CancelledError:
         try:
-            await task
+            await _settle_io(task)
         except Exception:
             pass
         raise
@@ -69,12 +80,13 @@ def _date(value):
 
 
 def _unchanged(context, etag, modified):
-    none_match = context.header('if-none-match')
-    if none_match is not None:
+    values = context.headers.getlist('if-none-match')
+    if values:
+        if sum(map(len, values)) + 2 * (len(values) - 1) > 8192:
+            return False
+        none_match = ', '.join(values)
         if none_match.strip() == '*':
             return True
-        if len(none_match) > 8192:
-            return False
         tag = r'(?:W/)?"[^"\x00-\x20\x7f]*"'
         if not re.fullmatch(r'\s*' + tag + r'(?:\s*,\s*' + tag + r')*\s*', none_match):
             return False
@@ -134,14 +146,14 @@ class FileResponse(Response):
         self._used = True
         opening = asyncio.create_task(asyncio.to_thread(self._opener, self.path))
         try:
-            file = await asyncio.shield(opening)
+            await asyncio.wait((opening,))
+            file = opening.result()
         except asyncio.CancelledError:
             try:
-                file = await opening
+                file = await _settle_io(opening)
+                await _io(file.close)
             except Exception:
                 pass
-            else:
-                await _io(file.close)
             raise
         except (FileNotFoundError, NotADirectoryError, IsADirectoryError, PermissionError):
             raise HTTPException(404, 'File not found.') from None

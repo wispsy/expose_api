@@ -9,6 +9,11 @@ from urllib.parse import parse_qsl
 from .errors import ConfigurationError
 from .http_protocol import ProtocolError, _Disconnected, _HTTPError, _request_event
 
+_TOKEN = r"[!#$%&'*+.^_`|~0-9A-Za-z-]+"
+_MEDIA = re.compile(_TOKEN + '/' + _TOKEN)
+_PARAMETER = re.compile(r'[ \t]*;[ \t]*(' + _TOKEN + r')[ \t]*=[ \t]*(' + _TOKEN
+                        + r'|"(?:[^"\\\x00-\x08\x0a-\x1f\x7f]|\\[\t\x20-\x7e\x80-\xff])*")[ \t]*')
+
 
 class MultiDict(Mapping):
     """Immutable ordered pairs; mapping reads select the last repeated value."""
@@ -105,17 +110,27 @@ class HTTPRequest:
         raw = self.header('content-type')
         if raw is None:
             raise _HTTPError(415, 'media_type', 'A supported Content-Type is required.')
-        media, *parameters = raw.lower().split(';')
-        media = media.strip()
+        raw = raw.strip(' \t')
+        matched = _MEDIA.match(raw)
+        if matched is None:
+            raise _HTTPError(415, 'media_type', 'A supported Content-Type is required.')
+        media, position, parameters = matched[0].lower(), matched.end(), {}
+        while position < len(raw):
+            matched = _PARAMETER.match(raw, position)
+            if matched is None:
+                raise _HTTPError(415, 'media_type', 'Invalid Content-Type parameters.')
+            name, value = matched.groups()
+            name = name.lower()
+            if name in parameters:
+                raise _HTTPError(415, 'media_type', 'Invalid Content-Type parameters.')
+            if value.startswith('"'):
+                value = re.sub(r'\\(.)', r'\1', value[1:-1])
+            parameters[name] = value
+            position = matched.end()
         if not (media == expected or expected == 'application/json'
                 and re.fullmatch(r'application/[a-z0-9!#$&^_.+-]+\+json', media)):
             raise _HTTPError(415, 'media_type', 'A supported Content-Type is required.')
-        charsets = []
-        for parameter in parameters:
-            name, separator, value = parameter.strip().partition('=')
-            if name.strip() == 'charset':
-                charsets.append(value.strip().strip('"') if separator else '')
-        if len(charsets) > 1 or any(value not in ('utf-8', 'utf8') for value in charsets):
+        if parameters.get('charset', 'utf-8').lower() not in ('utf-8', 'utf8'):
             raise _HTTPError(415, 'media_type', 'Request text must use UTF-8.')
 
     async def body(self, *, max_size=None):
