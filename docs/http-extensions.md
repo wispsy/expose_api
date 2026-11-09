@@ -30,6 +30,9 @@ nonregular files return a public 404 without the path. FileResponse is single-us
 it transfers descriptor ownership to its stream, including HEAD, and reconciles
 pending thread I/O before closing on cancellation. It does not root a directory
 or prohibit caller-selected symlinks; StaticFiles owns those constraints.
+Repeated cancellation also waits for an in-flight open/read/close to settle
+before releasing its descriptor, then propagates cancellation. Upload spooling
+uses the same ownership rule for thread-backed writes and cleanup.
 
 MIME type is inferred with an octet-stream fallback. Download names use safe
 ASCII fallback and UTF-8 filename* parameters. Metadata includes Last-Modified,
