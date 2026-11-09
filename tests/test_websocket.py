@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import unittest
 
 from expose_api import App, ConfigurationError, MemoryStore, Principal
@@ -160,6 +160,8 @@ class WebSocketTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await socket.start())["code"], 1008)
 
     async def test_terminal_close_drains_stream_before_a_stalled_close_send(self):
+        mount, config = self.app._sockets.mounts['/notes']
+        self.app._sockets.mounts['/notes'] = (mount, replace(config, send_timeout=5))
         close_started, release = asyncio.Event(), asyncio.Event()
         socket = Socket(self.app)
         async def held_close(event):
@@ -177,7 +179,7 @@ class WebSocketTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(close_started.wait(), 1)
             await self.resource.update("a", {"title": "After close"})
             with self.assertRaises(TimeoutError):
-                await asyncio.wait_for(socket.outgoing.get(), 0.05)
+                await asyncio.wait_for(socket.outgoing.get(), 0.15)
         finally:
             release.set()
         self.assertEqual((await socket.next())["code"], 1008)
