@@ -111,6 +111,22 @@ class StreamingTests(unittest.IsolatedAsyncioTestCase):
         result = await request(app, '/fail', hold=True)
         self.assertEqual((result.status, result.body, result.headers[b'cache-control']), (409, b'handled', b'no-store'))
 
+    async def test_malformed_receive_events_close_a_running_source(self):
+        for event in (None, {}, {'type': 'http.request', 'body': 'private'},
+                      {'type': 'http.request', 'more_body': 1}):
+            with self.subTest(event=event):
+                source = Source(block=True)
+                async def receive():
+                    await source.started.wait()
+                    return event
+                messages = []
+                async def send(message):
+                    messages.append(message)
+                with self.assertRaises(ProtocolError):
+                    await StreamingResponse(source)({'method': 'GET'}, receive, send)
+                self.assertTrue(source.closed)
+                self.assertEqual([message['type'] for message in messages], ['http.response.start'])
+
     async def test_real_development_server_stream(self):
         app = App()
         app.route('/stream', public=True)(lambda r: StreamingResponse([b'one', b'two']))

@@ -4,7 +4,7 @@ import asyncio
 import inspect
 
 from .errors import ConfigurationError
-from .http_protocol import ProtocolError
+from .http_protocol import ProtocolError, _request_event
 from .responses import Response, _headers
 
 
@@ -63,10 +63,8 @@ class StreamingResponse(Response):
     async def _disconnect(receive):
         while True:
             event = await receive()
-            if event['type'] == 'http.disconnect':
+            if _request_event(event) == 'http.disconnect':
                 return
-            if event['type'] != 'http.request':
-                raise ProtocolError('Expected an HTTP request or disconnect event.')
 
     async def __call__(self, scope, receive, send):
         if self._used:

@@ -3,7 +3,7 @@ import unittest
 from dataclasses import dataclass
 from uuid import UUID
 
-from expose_api import App, ConfigurationError, HTTPException, JSONResponse, MemoryStore, Response, Router
+from expose_api import App, ConfigurationError, HTTPException, JSONResponse, MemoryStore, ProtocolError, Response, Router
 from asgi_client import request
 
 
@@ -117,6 +117,7 @@ class RoutingTests(unittest.IsolatedAsyncioTestCase):
         async def echo(context):
             return Response(await context.body())
         self.assertEqual((await request(app, '/echo', 'POST', events=[{'type': 'http.disconnect'}])).messages, [])
+
         task = asyncio.create_task(request(app, '/echo', 'POST', events=[], hold=True))
         await asyncio.sleep(0)
         task.cancel()
@@ -129,3 +130,19 @@ class RoutingTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(OSError):
             await app({'type': 'http', 'method': 'GET', 'path': '/missing'}, None, send)
         self.assertEqual(len(events), 1)
+
+    async def test_malformed_receive_events_bypass_custom_exception_handlers(self):
+        app, handled = App(), []
+        @app.exception_handler(Exception)
+        def unexpected(context, exc):
+            handled.append(exc)
+            return Response(b'incorrectly handled')
+        @app.route('/echo', methods=('POST',), public=True)
+        async def echo(context):
+            return Response(await context.body())
+        app.include(Note, store=MemoryStore(), public=True)
+        for path, headers in (('/echo', []), ('/notes', [(b'content-type', b'application/json')])):
+            for event in (None, {}, {'type': 'http.request', 'body': 'private'}):
+                with self.subTest(path=path, event=event), self.assertRaises(ProtocolError):
+                    await request(app, path, 'POST', headers=headers, events=[event])
+        self.assertEqual(handled, [])

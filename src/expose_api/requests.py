@@ -7,7 +7,7 @@ from http.cookies import CookieError, SimpleCookie
 from urllib.parse import parse_qsl
 
 from .errors import ConfigurationError
-from .http_protocol import ProtocolError, _Disconnected, _HTTPError
+from .http_protocol import ProtocolError, _Disconnected, _HTTPError, _request_event
 
 
 class MultiDict(Mapping):
@@ -141,11 +141,8 @@ class HTTPRequest:
             body = bytearray()
             while True:
                 event = await self._receive()
-                if event['type'] == 'http.disconnect':
+                if _request_event(event) == 'http.disconnect':
                     raise _Disconnected
-                if (event['type'] != 'http.request' or type(event.get('body', b'')) is not bytes
-                        or type(event.get('more_body', False)) is not bool):
-                    raise ProtocolError('Expected an HTTP request event.')
                 chunk = event.get('body', b'')
                 if len(body) + len(chunk) > limit:
                     raise _HTTPError(413, 'body_too_large', 'Request body exceeds the size limit.')
