@@ -15,14 +15,25 @@ from .responses import HTTPException, Response, _headers
 from .streaming import StreamingResponse
 
 
+async def _settle_io(task):
+    """Keep a worker's result owned while further request cancellations arrive."""
+    while not task.done():
+        try:
+            await asyncio.wait((task,))
+        except asyncio.CancelledError:
+            continue
+    return task.result()
+
+
 async def _io(function, *args):
     """Finish an in-flight file operation before its descriptor can be closed."""
     task = asyncio.create_task(asyncio.to_thread(function, *args))
     try:
-        return await asyncio.shield(task)
+        await asyncio.wait((task,))
+        return task.result()
     except asyncio.CancelledError:
         try:
-            await task
+            await _settle_io(task)
         except Exception:
             pass
         raise
@@ -135,14 +146,14 @@ class FileResponse(Response):
         self._used = True
         opening = asyncio.create_task(asyncio.to_thread(self._opener, self.path))
         try:
-            file = await asyncio.shield(opening)
+            await asyncio.wait((opening,))
+            file = opening.result()
         except asyncio.CancelledError:
             try:
-                file = await opening
+                file = await _settle_io(opening)
+                await _io(file.close)
             except Exception:
                 pass
-            else:
-                await _io(file.close)
             raise
         except (FileNotFoundError, NotADirectoryError, IsADirectoryError, PermissionError):
             raise HTTPException(404, 'File not found.') from None
