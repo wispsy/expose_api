@@ -213,6 +213,47 @@ class FileTests(unittest.IsolatedAsyncioTestCase):
                     file.close()
         self.assertEqual(errors, [])
 
+    async def test_stream_cleanup_closes_file_after_repeated_cancellation(self):
+        started, release, finished = threading.Event(), threading.Event(), threading.Event()
+        file, cleanup = self.opener(self.path), []
+        class HeldRead:
+            def __getattr__(self, name):
+                return getattr(file, name)
+            def read(self, size):
+                started.set()
+                release.wait(10)
+                try:
+                    return file.read(size)
+                finally:
+                    finished.set()
+            def close(self):
+                cleanup.append(finished.is_set())
+                file.close()
+        response = await FileResponse(self.path, _opener=lambda path: HeldRead()).prepare({'method': 'GET'})
+        async def receive():
+            await asyncio.Future()
+        async def send(event):
+            pass
+        task = asyncio.create_task(response({'method': 'GET'}, receive, send))
+        try:
+            self.assertTrue(await asyncio.to_thread(started.wait, 5))
+            for _ in range(3):
+                task.cancel()
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+                self.assertFalse(task.done())
+                self.assertFalse(file.closed)
+            release.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertEqual(cleanup, [True])
+            self.assertTrue(file.closed)
+        finally:
+            release.set()
+            await asyncio.gather(task, return_exceptions=True)
+            await asyncio.to_thread(finished.wait, 5)
+            file.close()
+
     def test_configuration(self):
         for options in ({'filename': '../bad'}, {'filename': 'bad\nname'}, {'headers': {'etag': 'caller'}}, {'chunk_size': 0}):
             with self.assertRaises(ConfigurationError):

@@ -120,3 +120,18 @@ class RequestTests(unittest.IsolatedAsyncioTestCase):
             await task
         with self.assertRaises(asyncio.CancelledError):
             await request.body()
+
+    async def test_malformed_event_shapes_remain_protocol_failures_without_rereading(self):
+        for event in (None, [], {}, {'body': b'private'}, {'type': None}, {'type': 'websocket.receive'},
+                      {'type': 'http.request', 'body': bytearray()},
+                      {'type': 'http.request', 'more_body': None}):
+            with self.subTest(event=event):
+                context, reads, _ = reader(events=[event])
+                with self.assertRaises(ProtocolError):
+                    await context.body()
+                with self.assertRaises(ProtocolError):
+                    await context.body()
+                self.assertEqual(len(reads), 1)
+        context, reads, _ = reader(events=[{'type': 'http.request', 'extra': 'ignored'}])
+        self.assertEqual(await context.body(), b'')
+        self.assertEqual(len(reads), 1)

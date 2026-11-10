@@ -113,6 +113,96 @@ class StreamingTests(unittest.IsolatedAsyncioTestCase):
         result = await request(app, '/fail', hold=True)
         self.assertEqual((result.status, result.body, result.headers[b'cache-control']), (409, b'handled', b'no-store'))
 
+    async def test_malformed_receive_events_close_a_running_source(self):
+        for event in (None, {}, {'type': 'http.request', 'body': 'private'},
+                      {'type': 'http.request', 'more_body': 1}):
+            with self.subTest(event=event):
+                source = Source(block=True)
+                async def receive():
+                    await source.started.wait()
+                    return event
+                messages = []
+                async def send(message):
+                    messages.append(message)
+                with self.assertRaises(ProtocolError):
+                    await StreamingResponse(source)({'method': 'GET'}, receive, send)
+                self.assertTrue(source.closed)
+                self.assertEqual([message['type'] for message in messages], ['http.response.start'])
+
+    async def test_completed_sender_does_not_hide_a_receive_failure(self):
+        for failure in (None, OSError('receive closed')):
+            with self.subTest(failure=failure):
+                source, messages, closed = Source([]), [], []
+                original_close = source.aclose
+                async def close():
+                    closed.append(True)
+                    await original_close()
+                source.aclose = close
+                async def receive():
+                    if failure is not None:
+                        raise failure
+                    return {}
+                async def send(event):
+                    messages.append(event)
+                with self.assertRaises(ProtocolError if failure is None else OSError):
+                    await StreamingResponse(source)({'method': 'GET'}, receive, send)
+                self.assertFalse(messages[-1]['more_body'])
+                self.assertEqual(closed, [True])
+                self.assertTrue(source.closed)
+
+    async def test_simultaneous_send_failure_keeps_its_original_exception(self):
+        source = Source([])
+        failure = OSError('send closed')
+        async def receive():
+            raise ProtocolError('invalid receive')
+        async def send(event):
+            if event['type'] == 'http.response.body':
+                raise failure
+        with self.assertRaises(OSError) as caught:
+            await StreamingResponse(source)({'method': 'GET'}, receive, send)
+        self.assertIs(caught.exception, failure)
+        self.assertTrue(source.closed)
+
+    async def test_repeated_cancellation_waits_for_source_cleanup(self):
+        for mode in ('stream', 'preparation'):
+            with self.subTest(mode=mode):
+                source = Source(block=mode == 'stream')
+                started, release = asyncio.Event(), asyncio.Event()
+                original_close = source.aclose
+                async def close():
+                    started.set()
+                    await release.wait()
+                    await original_close()
+                source.aclose = close
+                response = StreamingResponse(source)
+                async def receive():
+                    await asyncio.Future()
+                async def send(event):
+                    pass
+                if mode == 'preparation':
+                    response.headers.append((b'content-length', b'1'))
+                    task = asyncio.create_task(response.prepare({'method': 'GET'}))
+                else:
+                    task = asyncio.create_task(response({'method': 'GET'}, receive, send))
+                try:
+                    if mode == 'stream':
+                        await asyncio.wait_for(source.started.wait(), 5)
+                        task.cancel()
+                    await asyncio.wait_for(started.wait(), 5)
+                    for _ in range(3):
+                        task.cancel()
+                        await asyncio.sleep(0)
+                        await asyncio.sleep(0)
+                        self.assertFalse(task.done())
+                        self.assertFalse(source.closed)
+                    release.set()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await task
+                    self.assertEqual(source.closes, 1)
+                finally:
+                    release.set()
+                    await asyncio.gather(task, return_exceptions=True)
+
     async def test_mutated_stream_headers_fail_before_start_and_close_the_source(self):
         for mode in ('direct', 'app', 'exception'):
             for mutation in ({'headers': [(b'x-private', b'private\r\ninjected: yes')]},

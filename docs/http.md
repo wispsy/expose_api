@@ -44,6 +44,9 @@ the body. Multipart uses the separately selected bounded
 profile below; unbounded request streaming remains separate. Concurrent readers
 fail, and a failed, disconnected or canceled reader
 cannot restart consumption. A route uses its application's max_body_size.
+Malformed server receive dictionaries raise ProtocolError and bypass application
+exception handlers. Omitted body/more_body fields retain their ASGI defaults;
+streaming disconnect listeners apply the same event validation.
 
 Register custom handlers separately from resources:
 

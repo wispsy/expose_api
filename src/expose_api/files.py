@@ -10,19 +10,10 @@ from pathlib import Path
 from urllib.parse import quote
 
 from .errors import ConfigurationError
+from .http_protocol import _settle_task
 from .requests import HTTPRequest
 from .responses import HTTPException, Response, _headers
 from .streaming import StreamingResponse
-
-
-async def _settle_io(task):
-    """Keep a worker's result owned while further request cancellations arrive."""
-    while not task.done():
-        try:
-            await asyncio.wait((task,))
-        except asyncio.CancelledError:
-            continue
-    return task.result()
 
 
 async def _io(function, *args):
@@ -33,7 +24,7 @@ async def _io(function, *args):
         return task.result()
     except asyncio.CancelledError:
         try:
-            await _settle_io(task)
+            await _settle_task(task)
         except Exception:
             pass
         raise
@@ -150,7 +141,7 @@ class FileResponse(Response):
             file = opening.result()
         except asyncio.CancelledError:
             try:
-                file = await _settle_io(opening)
+                file = await _settle_task(opening)
                 await _io(file.close)
             except Exception:
                 pass
