@@ -12,6 +12,8 @@ exercises these interfaces together; upload authentication is caller-supplied.
 
 See [portable acceptance runners](docs/ci.md) for the default three-OS CI matrix
 and explicit manual ARM64 selection.
+The [web application contracts](docs/web-upgrades.md) describe typed request
+providers and the EXP-WEB upgrade queue preceding application migration.
 
 Resources can explicitly select a `ModelSchema` subclass with
 `App.include(..., schema=selected_schema)` or `Resource(..., schema=...)`.

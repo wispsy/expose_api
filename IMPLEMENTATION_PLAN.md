@@ -1,5 +1,10 @@
 # HTTP application enhancement plan
 
+The subsequent [EXP-WEB arenas](docs/web-upgrades.md) strengthen request
+dependencies, access composition, testing, typed handlers and optional security
+profiles before PNB-WEB-01 begins. Their five linked issues are tracked in the
+same Project; existing WEB tasks remain complete.
+
 Adopted: 2026-11-08.
 
 ## Goal and evidence
