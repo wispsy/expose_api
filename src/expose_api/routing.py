@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from .errors import ConfigurationError
 from .route_docs import RouteDocs
+from .access import Authenticated
 
 _CONVERTERS = {
     'str': (r'[^/]+', str),
@@ -32,6 +33,7 @@ class Route:
     authenticate: bool
     dependencies: tuple
     documentation: RouteDocs
+    access: Authenticated | None
 
     def match(self, path):
         matched = self.pattern.fullmatch(path)
@@ -48,7 +50,11 @@ class Route:
 
 
 def make_route(path, handler, *, methods=('GET',), public=False, authorize=None, name=None,
-               authenticate=False, dependencies=(), docs=None):
+               authenticate=False, dependencies=(), docs=None, access=None):
+    if access is not None:
+        if type(access) is not Authenticated or public or authorize is not None or authenticate:
+            raise ConfigurationError('Select an Authenticated policy without legacy access flags.')
+        authenticate, authorize = True, access
     if (type(path) is not str or not path.startswith('/') or path.startswith('//')
             or not callable(handler) or isinstance(methods, str)):
         raise ConfigurationError('A route requires a local path, handler and method collection.')
@@ -72,7 +78,8 @@ def make_route(path, handler, *, methods=('GET',), public=False, authorize=None,
     if docs is not None and not isinstance(docs, RouteDocs):
         raise ConfigurationError('Select RouteDocs metadata explicitly.')
     documentation = docs.snapshot() if docs is not None else RouteDocs()
-    if authenticate and documentation._data.get('security') == []:
+    security = documentation._data.get('security')
+    if authenticate and security is not None and (not security or any(not item for item in security)):
         raise ConfigurationError('Authenticated routes cannot declare anonymous security.')
     expressions, parameters, shapes, static = [], [], [], []
     dynamic = False
@@ -96,7 +103,7 @@ def make_route(path, handler, *, methods=('GET',), public=False, authorize=None,
                 static.append(segment)
     return Route(path, selected, handler, authorize, re.compile('/' + '/'.join(expressions)),
                  tuple(parameters), '/' + '/'.join(shapes), ('/' + '/'.join(static)).rstrip('/'), route_name,
-                 authenticate, tuple(hooks), documentation)
+                 authenticate, tuple(hooks), documentation, access)
 
 
 def _prefix(prefix):
@@ -110,9 +117,10 @@ def prefixed_routes(router, prefix='', name_prefix=''):
         raise ConfigurationError('Include a Router with an optional text name prefix.')
     _prefix(prefix)
     return [make_route(prefix + route.path, route.handler, methods=route.methods,
-                       public=route.authorize is None, authorize=route.authorize,
+                       public=route.authorize is None, authorize=None if route.access else route.authorize,
                        name=name_prefix + route.name if route.name is not None else None,
-                       authenticate=route.authenticate, dependencies=route.dependencies, docs=route.documentation)
+                       authenticate=False if route.access else route.authenticate,
+                       dependencies=route.dependencies, docs=route.documentation, access=route.access)
             for route in router._routes]
 
 
@@ -136,12 +144,12 @@ class Router:
         self._routes = combined
 
     def route(self, path, *, methods=('GET',), public=False, authorize=None, name=None,
-              authenticate=False, dependencies=(), docs=None):
+              authenticate=False, dependencies=(), docs=None, access=None):
         def register(handler):
             if type(path) is not str or not path.startswith('/'):
                 raise ConfigurationError('Route paths must start with a slash.')
             self._add(make_route(self.prefix + path, handler, methods=methods, public=public,
-                                 authorize=authorize, name=name, authenticate=authenticate, dependencies=dependencies, docs=docs))
+                                 authorize=authorize, name=name, authenticate=authenticate, dependencies=dependencies, docs=docs, access=access))
             return handler
         return register
 

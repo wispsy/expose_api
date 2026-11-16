@@ -31,6 +31,28 @@ including failures; concurrent contexts do not mutate the application registry.
 Request scopes snapshot overrides on first resolution. Overrides do not bypass
 route authentication or authorization.
 
+## Authenticated access policies
+
+`@app.route('/admin', access=Authenticated(scopes={'admin'}, tenant=True,
+checks=(can_read,)))` selects identity verification and authorization together.
+The application must configure its caller-owned authenticator and challenge.
+Do not combine `access` with `public`, `authorize` or `authenticate` flags.
+Existing explicit authorization callbacks retain their original behavior.
+
+Missing identity returns 401 with the configured challenge. All selected scopes
+must be present; `tenant=True` requires tenant information and a string requires
+an exact tenant match. Missing permissions return 403 before dependencies or body
+reads. Ordered synchronous/asynchronous checks receive the verified request,
+must return bool and short circuit on denial. Checks can resolve typed services.
+Tenant ownership of individual records still belongs to record policies or
+application permission checks; selecting a tenant does not infer record access.
+
+Protected successes and errors force no-store. Router inclusion preserves policy
+selection. OpenAPI describes required scopes/tenant and the existing challenge;
+metadata cannot select an anonymous alternative for authenticated routes.
+Credential verification, session/account storage and token issuance remain
+application-owned.
+
 ## Development arenas
 
 The canonical queue is [Project 7](https://github.com/orgs/wispsy/projects/7):

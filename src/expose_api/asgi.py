@@ -197,13 +197,13 @@ class App:
         self._applications.append((path, application))
 
     def route(self, path, *, methods=("GET",), public=False, authorize=None, name=None,
-              authenticate=False, dependencies=(), docs=None):
+              authenticate=False, dependencies=(), docs=None, access=None):
         """Register a handler receiving one HTTPRequest and returning a Response."""
         def register(handler):
             if self._frozen:
                 raise ConfigurationError("Register routes before serving the application.")
             route = make_route(path, handler, methods=methods, public=public, authorize=authorize, name=name,
-                               authenticate=authenticate, dependencies=dependencies, docs=docs)
+                               authenticate=authenticate, dependencies=dependencies, docs=docs, access=access)
             if route.authenticate and self.authenticate is None:
                 raise ConfigurationError("Authenticated routes require an application authenticator.")
             if name is not None and any(route.name == name for route in self._mount_urls._routes):

@@ -46,6 +46,45 @@ class BearerAuth:
 
 
 @dataclass(frozen=True, slots=True)
+class Authenticated:
+    """Require verified identity, all scopes, optional tenant and every check."""
+
+    scopes: frozenset[str] = frozenset()
+    tenant: bool | str = False
+    checks: tuple = ()
+
+    def __post_init__(self):
+        if isinstance(self.scopes, str) or isinstance(self.checks, str):
+            raise ConfigurationError('Select collections of scopes and permission checks.')
+        try:
+            scopes, checks = frozenset(self.scopes), tuple(self.checks)
+        except TypeError:
+            raise ConfigurationError('Select collections of scopes and permission checks.') from None
+        if (len(scopes) > 64 or not all(_identifier(scope) for scope in scopes)
+                or type(self.tenant) is not bool and not _identifier(self.tenant)
+                or any(not callable(check) for check in checks)):
+            raise ConfigurationError('Select bounded scopes, a tenant requirement and callable checks.')
+        object.__setattr__(self, 'scopes', scopes)
+        object.__setattr__(self, 'checks', checks)
+
+    async def __call__(self, request):
+        principal = request.principal
+        if (type(principal) is not Principal or not self.scopes <= principal.scopes
+                or self.tenant is True and principal.tenant is None
+                or type(self.tenant) is str and principal.tenant != self.tenant):
+            return False
+        for check in self.checks:
+            allowed = check(request)
+            if inspect.isawaitable(allowed):
+                allowed = await allowed
+            if type(allowed) is not bool:
+                raise ConfigurationError('Policy checks must return a boolean.')
+            if not allowed:
+                return False
+        return True
+
+
+@dataclass(frozen=True, slots=True)
 class RecordAccess:
     principal: Principal
     policy: Callable
