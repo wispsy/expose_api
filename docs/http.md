@@ -125,9 +125,10 @@ Cache-Control: no-store value, including custom error responses.
 `dependencies=(hook, ...)` runs explicit request hooks in order, once per callable
 identity per request. Hooks receive HTTPRequest, may be async, and return None.
 They can populate request.state or raise HTTPException to stop the request.
-There is no signature injection, yielded dependency context or return-value
-injection. Caller-owned resource cleanup belongs in lifespan or handler context
-managers. Authentication, authorization and hooks do not implicitly read a body.
+Typed services use the separate explicit `request.resolve(Type)` interface and
+`App.provide`; their contexts have request-owned cleanup through response
+completion. See [web application contracts](web-upgrades.md). Authentication,
+authorization and hooks do not implicitly read a body.
 
 `@app.exception_handler(ValueError)` registers a `(request, exception)` handler
 returning Response. The closest type in the exception's method resolution order

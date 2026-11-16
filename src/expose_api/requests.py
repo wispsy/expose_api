@@ -64,6 +64,24 @@ class HTTPRequest:
         self.principal = None
         self._body = self._failure = None
         self._reading = False
+        self._dependency_scope = None
+        self._dependency_error = None
+        self._dependencies_closed = False
+
+    async def resolve(self, key):
+        """Resolve an explicitly registered type once in this request."""
+        if self.app is None or self._dependencies_closed:
+            raise ConfigurationError('Dependency resolution requires an application-bound request.')
+        if self._dependency_scope is None:
+            from .dependencies import DependencyScope
+            self._dependency_scope = DependencyScope(self, {**self.app._providers,
+                                                           **self.app._provider_overrides.get()})
+        return await self._dependency_scope.resolve(key)
+
+    async def _close_dependencies(self, error=None):
+        self._dependencies_closed = True
+        if self._dependency_scope is not None:
+            await self._dependency_scope.close(error or self._dependency_error)
 
     @property
     def method(self):

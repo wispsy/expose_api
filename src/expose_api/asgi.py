@@ -7,7 +7,8 @@ import math
 import re
 import sys
 from collections.abc import Callable, Iterable
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from urllib.parse import parse_qsl, quote
 
@@ -126,6 +127,31 @@ class App:
         self._exception_handlers = {}
         self._security_schemes = {}
         self._mount_urls = Router()
+        self._providers = {}
+        self._provider_overrides = ContextVar('expose_api_provider_overrides', default={})
+
+    def provide(self, key, provider):
+        """Register one request provider per concrete type before serving."""
+        from .dependencies import _provider
+        _provider(key, provider)
+        if self._frozen or key in self._providers:
+            raise ConfigurationError('Register each provider once before serving.')
+        self._providers[key] = provider
+
+    @contextmanager
+    def override_providers(self, providers):
+        """Temporarily override providers in this asynchronous context only."""
+        from .dependencies import _provider
+        selected = dict(providers)
+        for key, provider in selected.items():
+            _provider(key, provider)
+            if key not in self._providers:
+                raise ConfigurationError('Overrides require an existing provider registration.')
+        token = self._provider_overrides.set({**self._provider_overrides.get(), **selected})
+        try:
+            yield self
+        finally:
+            self._provider_overrides.reset(token)
 
     def openapi_security_scheme(self, name, definition):
         """Register descriptive security metadata without installing authentication."""
@@ -307,7 +333,9 @@ class App:
             await send(event)
         try:
             await self._asgi_application(scope, receive, guarded_send)
-        except _Disconnected:
+        except _Disconnected as exc:
+            if state.context is not None:
+                state.context._dependency_error = exc
             return
         except ProtocolError:
             raise
@@ -321,6 +349,9 @@ class App:
             status, headers, body = response
             await guarded_send({"type": "http.response.start", "status": status, "headers": headers})
             await guarded_send({"type": "http.response.body", "body": body})
+        finally:
+            if state.context is not None:
+                await state.context._close_dependencies(sys.exception())
 
     async def _serve(self, scope, receive, send):
         if scope["type"] == "lifespan":
@@ -340,7 +371,9 @@ class App:
                 response = await response.prepare(scope)
                 if not isinstance(response, Response):
                     raise ConfigurationError("Response preparation must return a Response.")
-        except _Disconnected:
+        except _Disconnected as exc:
+            if state.context is not None:
+                state.context._dependency_error = exc
             return
         except ProtocolError:
             raise
@@ -357,6 +390,8 @@ class App:
         await send({"type": "http.response.body", "body": b"" if scope["method"] == "HEAD" else body})
 
     async def _exception_response(self, exc, scope, receive, state):
+        if state.context is not None:
+            state.context._dependency_error = exc
         handler = next((self._exception_handlers[kind] for kind in type(exc).__mro__
                         if kind in self._exception_handlers), None)
         if handler is not None:
@@ -364,6 +399,8 @@ class App:
             if context is None:
                 context = HTTPRequest(scope, receive, max_body_size=self.max_body_size, app=self)
                 context._failure = ProtocolError("Exception handlers cannot read an unowned request body.")
+                context._dependency_error = exc
+                state.context = context
             try:
                 response = handler(context, exc)
                 if inspect.isawaitable(response):
