@@ -158,6 +158,10 @@ def extend_document(app, paths, components):
                 value['operationId'] = base + ('_' + key if len(route.methods) > 1 or route.documentation.operation_id is None else '')
                 value['parameters'] = _parameters(route) + value['parameters']
                 value['x-access-policy'] = 'authenticated-callback' if route.authenticate else 'callback' if route.authorize else 'public'
+                if route.access is not None:
+                    value['x-access-policy'] = 'authenticated-policy'
+                    value['x-required-scopes'] = sorted(route.access.scopes)
+                    value['x-tenant-policy'] = 'fixed' if type(route.access.tenant) is str else 'required' if route.access.tenant else 'optional'
                 value['x-runtime-validation'] = False
                 codes = {400, 405, 500}
                 if route.authorize is not None:
