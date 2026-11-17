@@ -1,5 +1,12 @@
 # expose-api
 
+The checkout prepares version **0.2.0** with typed request services,
+authenticated access policies, an async ASGI test client, validated JSON
+handlers and opt-in security middleware. See the
+[web application contracts](docs/web-upgrades.md) for configuration and limits.
+Package publication is separate from this preparation; the 0.1.0 installation
+example below refers to the published original API.
+
 The [HTTP application enhancement plan](IMPLEMENTATION_PLAN.md) describes the
 general routing layer and the staged Pretty Notebook compatibility work.
 This checkout also supports [explicit HTTP handlers](docs/http.md), routers,
@@ -222,10 +229,12 @@ artifacts, then runs the suite and example outside the checkout. CI runs on
 Linux, macOS and Windows. [Release preparation](https://github.com/wispsy/expose_api/blob/main/docs/releasing.md) describes the
 separate publishing workflow.
 
-The [Project](https://github.com/orgs/wispsy/projects/14) and
-[issues](https://github.com/wispsy/expose_api/issues) track later SQLite,
-OpenAPI, WebSocket and optional Hidden Moves/Backpack/CLI integrations. Version
-0.1.0 does not include those features. License terms have not yet been specified.
+The [Project](https://github.com/orgs/wispsy/projects/7) and
+[issues](https://github.com/wispsy/expose_api/issues) track framework upgrades,
+optional integrations and Pretty Notebook compatibility. The 0.2.0 candidate
+includes HTTP routing, OpenAPI, resource WebSockets and optional persistence;
+the published 0.1.0 retains the original API. License terms have not yet been
+specified.
 
 ## Persistent applications
 
@@ -235,8 +244,8 @@ and process ownership requirements. Persistent integration remains explicit.
 
 Install this checkout with `uv sync --extra backpack` to use
 `from expose_api.backpack import BackpackStore`. This extra pins the unreleased
-backend to `54f5a1e883fcc32f8d87cc553dc83dae0434300d` and uses published
-`enforce-type==0.1.x`; the published Expose API 0.1.0 has no adapter. Open with
+backend to `9a691aa551bf7fb42134168452bbdb2e1d454928` and uses published
+`enforce-type==0.1.0`; the published Expose API 0.1.0 has no adapter. Open with
 explicit `model`, database path, `namespace`, `table` and `type_key`, then close
 with `await store.aclose()` during application shutdown. See the persistence
 profile for the supported scalar models and cancellation reconciliation.

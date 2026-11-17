@@ -33,6 +33,8 @@ class TestingTests(unittest.IsolatedAsyncioTestCase):
             response = await client.post('/echo', json={'ready': True})
             self.assertEqual((response.status, response.json, response.complete), (200, {'ready': True}, True))
             self.assertEqual(response.headers.getlist('x-a'), ['one', 'two'])
+            self.assertEqual(response.headers.getlist('X-A'), ['one', 'two'])
+            self.assertEqual(response.headers['Content-Type'], 'application/json')
             self.assertEqual((await client.post('/echo', data=[('x', 'one'), ('x', 'two')])).json, ['one', 'two'])
             self.assertEqual((await client.head('/health')).body, b'')
         self.assertEqual(calls, ['start', 'stop'])

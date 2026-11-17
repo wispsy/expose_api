@@ -69,7 +69,7 @@ class HTTPRequest:
         self._dependency_error = None
         self._dependencies_closed = False
 
-    async def resolve(self, key):
+    async def resolve[T](self, key: type[T]) -> T:
         """Resolve an explicitly registered type once in this request."""
         if self.app is None or self._dependencies_closed:
             raise ConfigurationError('Dependency resolution requires an application-bound request.')

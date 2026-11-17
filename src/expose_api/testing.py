@@ -18,6 +18,14 @@ from .responses import _headers
 _UNSET = object()
 
 
+class _Headers(MultiDict):
+    def __getitem__(self, name):
+        return super().__getitem__(name.lower() if isinstance(name, str) else name)
+
+    def getlist(self, name):
+        return super().getlist(name.lower() if isinstance(name, str) else name)
+
+
 async def _next(queue, task, timeout):
     reader = asyncio.create_task(queue.get())
     try:
@@ -46,7 +54,7 @@ class TestResponse:
 
     @property
     def headers(self):
-        return MultiDict((key.decode('ascii').lower(), value.decode('latin-1')) for key, value in self.raw_headers)
+        return _Headers((key.decode('ascii').lower(), value.decode('latin-1')) for key, value in self.raw_headers)
 
     @property
     def text(self):
@@ -124,6 +132,7 @@ class TestClient:
                 self._stack = None
 
     async def __aexit__(self, kind, error, traceback):
+        self._active = False
         try:
             for socket in tuple(self._sockets):
                 await socket.close()

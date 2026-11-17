@@ -1,6 +1,6 @@
 """Typed dataclass applications with no runtime dependencies."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .errors import AccessDeniedError, AccessScanError, ConfigurationError, ConflictError, Issue, NotFoundError, RevisionConflictError, ValidationError
 from .access import Authenticated, BearerAuth, Principal
@@ -22,6 +22,7 @@ from .static import StaticFiles
 from .templates import TemplateRenderer, JinjaTemplates
 from .testing import TestClient, TestResponse
 from .contracts import DataclassJSON, JSONAdapter, JSONContract
+from .middleware import CORSMiddleware, CSRFMiddleware, ProxyHeadersMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware, TrustedHostMiddleware
 
-__all__ = ["DataclassJSON", "JSONAdapter", "JSONContract", "TestClient", "TestResponse", "Authenticated", "TemplateRenderer", "JinjaTemplates", "StaticFiles", "MultipartLimits", "MultipartForm", "UploadFile", "RouteDocs", "FileResponse", "StreamingResponse", "Router", "HTTPRequest", "Response", "JSONResponse", "HTMLResponse", "RedirectResponse", "HTTPException", "EventPage", "EventSnapshot", "EventStore", "AccessDeniedError", "AccessScanError", "AccessStore", "BearerAuth", "Principal", "App", "ConfigurationError", "ConflictError", "Issue", "MemoryStore", "ModelSchema",
+__all__ = ["CORSMiddleware", "CSRFMiddleware", "ProxyHeadersMiddleware", "RateLimitMiddleware", "SecurityHeadersMiddleware", "TrustedHostMiddleware", "DataclassJSON", "JSONAdapter", "JSONContract", "TestClient", "TestResponse", "Authenticated", "TemplateRenderer", "JinjaTemplates", "StaticFiles", "MultipartLimits", "MultipartForm", "UploadFile", "RouteDocs", "FileResponse", "StreamingResponse", "Router", "HTTPRequest", "Response", "JSONResponse", "HTMLResponse", "RedirectResponse", "HTTPException", "EventPage", "EventSnapshot", "EventStore", "AccessDeniedError", "AccessScanError", "AccessStore", "BearerAuth", "Principal", "App", "ConfigurationError", "ConflictError", "Issue", "MemoryStore", "ModelSchema",
            "NotFoundError", "ProtocolError", "Request", "Resource", "RevisionConflictError", "Store", "ValidationError", "serve", "TableColumn"]
