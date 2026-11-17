@@ -3,6 +3,8 @@ name = "expose-api"
 version = "0.2.0"
 description = "Typed dataclass applications, explicit HTTP routing and native ASGI with no runtime dependencies."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE.md"]
 authors = [
     { name = "ellainng", email = "299958882+ellainng@users.noreply.github.com" }
 ]
@@ -10,8 +12,8 @@ requires-python = ">=3.14"
 dependencies = []
 
 [project.optional-dependencies]
-enforce-type = ["enforce-type==0.1.0"]
-backpack = ["backpack-store[enforce-type] @ git+https://github.com/wispsy/backpack.git@9a691aa551bf7fb42134168452bbdb2e1d454928"]
+enforce-type = ["enforce-type==0.2.0"]
+backpack = ["backpack-store[enforce-type]==0.2.0"]
 
 [project.urls]
 Source = "https://github.com/wispsy/expose_api"

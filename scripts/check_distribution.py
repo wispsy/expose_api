@@ -26,11 +26,12 @@ def metadata(raw, project):
     message = email.parser.BytesParser().parsebytes(raw)
     for key, expected in (("Name", "expose-api"), ("Version", project["version"]),
                           ("Requires-Python", ">=3.14"), ("Summary", project["description"]),
-                          ("Description-Content-Type", "text/markdown")):
+                          ("Description-Content-Type", "text/markdown"),
+                          ("License-Expression", "MIT"), ("License-File", "LICENSE.md")):
         assert message.get_all(key) == [expected], (key, message.get_all(key))
     requirements = message.get_all("Requires-Dist") or []
-    expected = {"enforce-type==0.1.0; extra == 'enforce-type'",
-                "backpack-store[enforce-type] @ git+https://github.com/wispsy/backpack.git@9a691aa551bf7fb42134168452bbdb2e1d454928; extra == 'backpack'"}
+    expected = {"enforce-type==0.2.0; extra == 'enforce-type'",
+                "backpack-store[enforce-type]==0.2.0; extra == 'backpack'"}
     normalized = {"; ".join(part.strip() for part in value.replace('"', "'").split(";")) for value in requirements}
     assert len(requirements) == 2 and normalized == expected, requirements
     assert set(message.get_all("Provides-Extra")) == {"backpack", "enforce-type"}
@@ -39,7 +40,7 @@ def metadata(raw, project):
 
 def wheel_files(path, version, project):
     info = f"expose_api-{version}.dist-info"
-    expected = {f"expose_api/{name}" for name in MODULES} | {f"{info}/{name}" for name in ("METADATA", "WHEEL", "RECORD")}
+    expected = {f"expose_api/{name}" for name in MODULES} | {f"{info}/{name}" for name in ("METADATA", "WHEEL", "RECORD", "licenses/LICENSE.md")}
     with zipfile.ZipFile(path) as archive:
         files = [name for name in archive.namelist() if not name.endswith("/")]
         assert len(files) == len(set(files)) and set(files) == expected, files
@@ -47,6 +48,7 @@ def wheel_files(path, version, project):
     for name in MODULES:
         assert result[f"expose_api/{name}"] == (ROOT / "src" / "expose_api" / name).read_bytes(), name
     metadata(result[f"{info}/METADATA"], project)
+    assert result[f"{info}/licenses/LICENSE.md"] == (ROOT / "LICENSE.md").read_bytes()
     return result
 
 
@@ -123,12 +125,13 @@ def main():
         original_wheel = wheel_files(wheel, version, project)
         prefix = f"expose_api-{version}"
         expected = {f"{prefix}/src/expose_api/{name}" for name in MODULES} | {
-            f"{prefix}/{name}" for name in ("pyproject.toml", "pyproject.toml.orig", "README.md", "PKG-INFO")}
+            f"{prefix}/{name}" for name in ("pyproject.toml", "pyproject.toml.orig", "README.md", "LICENSE.md", "PKG-INFO")}
         with tarfile.open(source) as archive:
             files = [m.name for m in archive.getmembers() if m.isfile()]
             assert len(files) == len(set(files)) and set(files) == expected, files
             assert all(m.isfile() or m.isdir() for m in archive.getmembers()), "Links are forbidden."
             metadata(archive.extractfile(f"{prefix}/PKG-INFO").read(), project)
+            assert archive.extractfile(f"{prefix}/LICENSE.md").read() == (ROOT / "LICENSE.md").read_bytes()
             for name in MODULES:
                 assert archive.extractfile(f"{prefix}/src/expose_api/{name}").read() == (ROOT / "src/expose_api" / name).read_bytes()
             for filename in ("pyproject.toml", "pyproject.toml.orig"):

@@ -36,7 +36,7 @@ jobs:
       - name: Build and verify exact artifacts
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: uv run --frozen python scripts/check_distribution.py --tag "$RELEASE_TAG" --output-dir dist
+        run: uv run --frozen python scripts/check_distribution.py --tag "$RELEASE_TAG" --backpack --enforce-type --output-dir dist
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-distributions

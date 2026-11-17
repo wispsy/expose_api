@@ -1,11 +1,11 @@
 # expose-api
 
-The checkout prepares version **0.2.0** with typed request services,
+Version **0.2.0** provides typed request services,
 authenticated access policies, an async ASGI test client, validated JSON
 handlers and opt-in security middleware. See the
 [web application contracts](docs/web-upgrades.md) for configuration and limits.
-Package publication is separate from this preparation; the 0.1.0 installation
-example below refers to the published original API.
+The [Pretty Notebook readiness assessment](docs/pretty-notebook-readiness.md)
+records the framework contracts and the application migration gates.
 
 The [HTTP application enhancement plan](IMPLEMENTATION_PLAN.md) describes the
 general routing layer and the staged Pretty Notebook compatibility work.
@@ -65,7 +65,7 @@ if __name__ == "__main__":
 Install from PyPI:
 
 ```sh
-python -m pip install expose-api==0.1.0
+python -m pip install expose-api==0.2.0
 ```
 
 From a checkout, `uv sync --locked` installs the package, and
@@ -231,10 +231,9 @@ separate publishing workflow.
 
 The [Project](https://github.com/orgs/wispsy/projects/7) and
 [issues](https://github.com/wispsy/expose_api/issues) track framework upgrades,
-optional integrations and Pretty Notebook compatibility. The 0.2.0 candidate
+optional integrations and Pretty Notebook compatibility. Version 0.2.0
 includes HTTP routing, OpenAPI, resource WebSockets and optional persistence;
-the published 0.1.0 retains the original API. License terms have not yet been
-specified.
+the published 0.1.0 retains the original API. Distributions include the MIT license.
 
 ## Persistent applications
 
@@ -242,10 +241,9 @@ The [SQLite persistence profile](docs/persistence.md) defines the optional
 Backpack Store adapter's model intersection, atomicity, cancellation, migration
 and process ownership requirements. Persistent integration remains explicit.
 
-Install this checkout with `uv sync --extra backpack` to use
-`from expose_api.backpack import BackpackStore`. This extra pins the unreleased
-backend to `9a691aa551bf7fb42134168452bbdb2e1d454928` and uses published
-`enforce-type==0.1.0`; the published Expose API 0.1.0 has no adapter. Open with
+Install `expose-api[backpack]==0.2.0` to use
+`from expose_api.backpack import BackpackStore`. This extra selects published
+`backpack-store==0.2.0` and `enforce-type==0.2.0`. Open with
 explicit `model`, database path, `namespace`, `table` and `type_key`, then close
 with `await store.aclose()` during application shutdown. See the persistence
 profile for the supported scalar models and cancellation reconciliation.
