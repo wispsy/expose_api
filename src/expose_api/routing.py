@@ -34,6 +34,7 @@ class Route:
     dependencies: tuple
     documentation: RouteDocs
     access: Authenticated | None
+    contract: object
 
     def match(self, path):
         matched = self.pattern.fullmatch(path)
@@ -50,7 +51,7 @@ class Route:
 
 
 def make_route(path, handler, *, methods=('GET',), public=False, authorize=None, name=None,
-               authenticate=False, dependencies=(), docs=None, access=None):
+               authenticate=False, dependencies=(), docs=None, access=None, contract=None):
     if access is not None:
         if type(access) is not Authenticated or public or authorize is not None or authenticate:
             raise ConfigurationError('Select an Authenticated policy without legacy access flags.')
@@ -78,6 +79,12 @@ def make_route(path, handler, *, methods=('GET',), public=False, authorize=None,
     if docs is not None and not isinstance(docs, RouteDocs):
         raise ConfigurationError('Select RouteDocs metadata explicitly.')
     documentation = docs.snapshot() if docs is not None else RouteDocs()
+    if contract is not None:
+        from .contracts import JSONContract
+        if type(contract) is not JSONContract:
+            raise ConfigurationError('Select an explicit JSONContract.')
+        contract = contract.snapshot()
+        documentation = contract.documentation(documentation)
     security = documentation._data.get('security')
     if authenticate and security is not None and (not security or any(not item for item in security)):
         raise ConfigurationError('Authenticated routes cannot declare anonymous security.')
@@ -103,7 +110,7 @@ def make_route(path, handler, *, methods=('GET',), public=False, authorize=None,
                 static.append(segment)
     return Route(path, selected, handler, authorize, re.compile('/' + '/'.join(expressions)),
                  tuple(parameters), '/' + '/'.join(shapes), ('/' + '/'.join(static)).rstrip('/'), route_name,
-                 authenticate, tuple(hooks), documentation, access)
+                 authenticate, tuple(hooks), documentation, access, contract)
 
 
 def _prefix(prefix):
@@ -120,7 +127,8 @@ def prefixed_routes(router, prefix='', name_prefix=''):
                        public=route.authorize is None, authorize=None if route.access else route.authorize,
                        name=name_prefix + route.name if route.name is not None else None,
                        authenticate=False if route.access else route.authenticate,
-                       dependencies=route.dependencies, docs=route.documentation, access=route.access)
+                       dependencies=route.dependencies, docs=route.documentation, access=route.access,
+                       contract=route.contract)
             for route in router._routes]
 
 
@@ -144,12 +152,13 @@ class Router:
         self._routes = combined
 
     def route(self, path, *, methods=('GET',), public=False, authorize=None, name=None,
-              authenticate=False, dependencies=(), docs=None, access=None):
+              authenticate=False, dependencies=(), docs=None, access=None, contract=None):
         def register(handler):
             if type(path) is not str or not path.startswith('/'):
                 raise ConfigurationError('Route paths must start with a slash.')
             self._add(make_route(self.prefix + path, handler, methods=methods, public=public,
-                                 authorize=authorize, name=name, authenticate=authenticate, dependencies=dependencies, docs=docs, access=access))
+                                 authorize=authorize, name=name, authenticate=authenticate, dependencies=dependencies,
+                                 docs=docs, access=access, contract=contract))
             return handler
         return register
 

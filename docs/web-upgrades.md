@@ -103,6 +103,57 @@ The event shapes and lifecycle follow the
 [ASGI HTTP/WebSocket](https://asgi.readthedocs.io/en/latest/specs/www.html) and
 [lifespan](https://asgi.readthedocs.io/en/latest/specs/lifespan.html) specifications.
 
+## Validated JSON handlers
+
+```python
+from dataclasses import dataclass
+from expose_api import JSONContract
+
+@dataclass
+class Greeting:
+    name: str
+
+@app.route('/greet', methods=('POST',), public=True,
+           contract=JSONContract(input=Greeting, output=Greeting))
+def greet(request):
+    return Greeting(name='Hello, ' + request.input.name)
+```
+
+JSONContract selects runtime input and/or output validation. Dataclass models
+reuse resource field validation, defaults, nested values, visibility and strict
+JSON types, without requiring an identity field. Authorization and ordered
+request hooks run before the bounded JSON reader and validation. The parsed
+model is request.input. Missing fields and invalid values use the existing
+value-free 422 envelope; malformed JSON/media retain 400/415. Constructors and
+custom post-init validators follow the existing dataclass model contract.
+
+With output selected, return the typed value; the contract validates, serializes
+and emits JSONResponse at its selected success status (default 200). Returning
+a Response cannot bypass output validation. Invalid output is a sanitized 500
+before headers. Input-only routes continue returning explicit Response objects;
+file/stream/HTML routes can use that profile. Path converters and repeated query
+fields keep their existing explicit interfaces; no signature injection or query
+coercion is inferred.
+
+The same selected model contracts generate request/response OpenAPI schemas and
+validation errors. Conflicting RouteDocs body or success-content declarations
+fail registration. Additional descriptive error metadata remains available.
+HEAD suppresses bytes while retaining validated representation headers.
+
+`DataclassJSON(Model)` exposes load/dump/json_schema independently.
+`JSONAdapter(load=..., dump=..., input_schema=..., output_schema=...)` selects
+caller-owned synchronous/asynchronous validators and serializers with detached
+schema metadata. ValueError from input validators becomes a value-free 422;
+framework ConfigurationError and unexpected failures stay 500. A validator may
+raise the framework ValidationError for deliberate public paths/codes. Keep
+submitted values out of those details. Output failures remain 500. Adapter
+callbacks own conformance to their supplied JSON schemas.
+
+For an application already using Pydantic, pass model_validate as load, a
+callback calling model_dump(mode='json') as dump, and the corresponding
+model_json_schema documents. Optional Enforce Type or other validators can use
+the same callback boundary. The framework does not import/install those engines.
+
 ## Development arenas
 
 The canonical queue is [Project 7](https://github.com/orgs/wispsy/projects/7):

@@ -62,6 +62,7 @@ class HTTPRequest:
         self.state = self.scope.setdefault('state', {}).copy()
         self.scope['state'] = self.state
         self.principal = None
+        self.input = None
         self._body = self._failure = None
         self._reading = False
         self._dependency_scope = None
