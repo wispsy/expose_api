@@ -22,6 +22,9 @@ Resources stay open through exception handlers and streamed response completion.
 Cleanup cancels and settles unfinished providers, then exits acquired contexts
 in reverse order. Contexts see the application/transport error when present;
 they cannot suppress it. Cleanup is reconciled through repeated cancellation.
+Each managed provider remains in its own task through context exit, preserving
+task identity and context-variable tokens. Its context variables remain private
+to that provider; handlers use the returned service explicitly.
 An error during cleanup after response-start propagates to the server; no second
 response is attempted. A retained request cannot resolve services after closing.
 
