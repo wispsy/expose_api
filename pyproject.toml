@@ -1,7 +1,7 @@
 [project]
 name = "expose-api"
-version = "0.1.0"
-description = "Standalone typed dataclass applications with native ASGI and generated JSON CRUD."
+version = "0.2.0"
+description = "Typed dataclass applications, explicit HTTP routing and native ASGI with no runtime dependencies."
 readme = "README.md"
 authors = [
     { name = "ellainng", email = "299958882+ellainng@users.noreply.github.com" }

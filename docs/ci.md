@@ -12,3 +12,9 @@ explicit automatic default avoids the ARM64 capacity failures observed during
 the optional validation work. GitHub's [runner inventory](https://github.com/actions/runner-images/blob/main/README.md)
 records the available standard labels. Runner availability and finite platform
 evidence do not change runtime dependencies or package publication gates.
+
+The installed base-suite receipts include the EXP-WEB dependency, access-policy,
+public-client, typed-contract and security-middleware modules. Wheel/source
+metadata and import versions must match the candidate version; a candidate build
+does not tag, publish or deploy it. The EXP-WEB development run ends after the
+final main workflow starts, so review that run before preparing publication.

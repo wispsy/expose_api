@@ -4,6 +4,9 @@ The subsequent [EXP-WEB arenas](docs/web-upgrades.md) strengthen request
 dependencies, access composition, testing, typed handlers and optional security
 profiles before PNB-WEB-01 begins. Their five linked issues are tracked in the
 same Project; existing WEB tasks remain complete.
+The prepared package version for these arenas is 0.2.0. PNB-WEB-01 remains a
+separate application compatibility task after the EXP-WEB queue and final CI
+review; release publication is also separate.
 
 Adopted: 2026-11-08.
 

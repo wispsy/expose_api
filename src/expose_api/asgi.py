@@ -9,7 +9,7 @@ import sys
 from collections.abc import Callable, Iterable
 from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from urllib.parse import parse_qsl, quote
 
 from .access import Principal
@@ -56,6 +56,7 @@ class _Mount:
 class _RequestState:
     protected: bool = False
     context: HTTPRequest | None = None
+    header_filters: list = field(default_factory=list)
 
 
 @asynccontextmanager
@@ -145,7 +146,7 @@ class App:
     def _authentication_callback(self):
         return self._authentication_override.get() or self.authenticate
 
-    def provide(self, key, provider):
+    def provide[T](self, key: type[T], provider) -> None:
         """Register one request provider per concrete type before serving."""
         from .dependencies import _provider
         _provider(key, provider)
@@ -337,6 +338,11 @@ class App:
             if event["type"] == "http.response.start":
                 if started:
                     raise ProtocolError("Response already started.")
+                if state.header_filters:
+                    headers = list(event.get('headers', ()))
+                    for transform in reversed(state.header_filters):
+                        headers = transform(headers)
+                    event = {**event, 'headers': headers}
                 if state.protected:
                     headers = [(key, value) for key, value in event.get("headers", ()) if key.lower() != b"cache-control"]
                     event = {**event, "headers": [*headers, (b"cache-control", b"no-store")]}

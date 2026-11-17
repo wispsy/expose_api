@@ -11,7 +11,8 @@ Register providers before serving with `app.provide(Service, provider)`.
 Providers receive the request and may return a service, an awaitable service,
 or a synchronous/asynchronous context manager yielding the service. Resolve
 explicitly with `service = await request.resolve(Service)`. The result must be
-an instance of the registered type. No handler signature inspection is involved.
+an instance of the registered type; the resolve annotation retains that type
+for static callers. No handler signature inspection is involved.
 
 Each request caches both successful and failed provider executions. Concurrent
 callers share one execution; dynamic and concurrent dependency cycles fail with
@@ -152,10 +153,115 @@ raise the framework ValidationError for deliberate public paths/codes. Keep
 submitted values out of those details. Output failures remain 500. Adapter
 callbacks own conformance to their supplied JSON schemas.
 
-For an application already using Pydantic, pass model_validate as load, a
+For an application already using [Pydantic](https://docs.pydantic.dev/latest/concepts/serialization/), pass model_validate as load, a
 callback calling model_dump(mode='json') as dump, and the corresponding
 model_json_schema documents. Optional Enforce Type or other validators can use
 the same callback boundary. The framework does not import/install those engines.
+
+## Opt-in security middleware
+
+Register middleware explicitly with `app.add_middleware(Profile, **options)`.
+The first registered middleware is outermost. A useful order is ProxyHeaders,
+SecurityHeaders, TrustedHost, CORS, CSRF, then a rate-limit decision. Security
+profiles do not install credential verification or replace route permissions.
+
+`TrustedHostMiddleware(allowed_hosts=('example.test', '*.assets.test', '[::1]'))`
+requires one well-formed Host. Matching is case insensitive, ignores a valid
+numeric port and requires complete hostname/subdomain boundaries. A wildcard
+matches subdomains, excluding its apex. Missing, repeated, malformed and
+unlisted hosts return 400 before body reads; WebSockets close with 1008.
+There is no automatic www redirect or universal wildcard. Configuration selects
+hostnames/IPs without ports; IPv6 addresses use brackets.
+
+`ProxyHeadersMiddleware(trusted_proxies=('127.0.0.1', '10.0.0.0/8'))` selects
+the immediate peer networks that may supply X-Forwarded-For/Proto. Traverse the
+For chain from right to left, discarding trusted proxies, and select the nearest
+untrusted address; if every hop is trusted, select the leftmost address. The
+effective client port is unknown (0). Require one field of at most 32 bare IP
+addresses/8 KiB and one optional http/https Proto value. WebSocket schemes map
+to ws/wss. Invalid trusted forwarding returns 400/1008; untrusted forwarding is
+ignored. Strip all Forwarded, X-Forwarded-* and X-Real-IP headers before passing
+on the copied scope. Host and root_path are never inferred from these headers.
+The configured proxies must overwrite or correctly append forwarding fields;
+the middleware cannot authenticate arbitrary upstream header authors.
+
+`SecurityHeadersMiddleware(headers=..., hsts_max_age=None)` supplies nosniff,
+DENY framing, strict-origin-when-cross-origin referrers and a same-origin CSP
+with object-src none, base-uri self and frame-ancestors none. Applications may
+override these selected values explicitly for their assets. No cookies or
+framing headers can be configured here. HSTS is emitted on HTTPS only when an
+age is selected; forwarding trust must precede it. Configured headers replace
+inner values while preserving repeated Set-Cookie and unrelated headers.
+Native App applies selected security/CORS transforms at its final response
+boundary, including sanitized errors from inner middleware. Cancellation,
+transport errors and post-start failures retain their existing ownership.
+
+`CORSMiddleware(origins=('https://app.example.test',), methods=('GET', 'POST'),
+headers=('content-type', 'x-csrf-token'), credentials=True)` selects finite
+origins/methods/request headers and optional exposed headers/max_age. HTTP(S)
+origins have no paths, credentials or null value. Default ports and host case
+are normalized for matching. A wildcard origin is allowed only without
+credentials; wildcard methods/headers are not selected. Preflight validates
+the requested method/header set and returns 204 without body reads. Allowed
+actual responses, including errors, receive the selected CORS fields and Vary;
+preflights vary by origin, method and requested headers. Existing Vary values
+are retained. Disallowed/ambiguous origins, methods or preflights return 403
+with no-store. Requests without Origin pass through. CORS does not authenticate
+requests, and nonbrowser clients can omit Origin. The profile follows the
+[Fetch CORS protocol](https://fetch.spec.whatwg.org/#http-cors-protocol).
+
+`CSRFMiddleware(origins=(...), token=expected_token, cookie_name='session',
+header_name='x-csrf-token', always=False)` protects unsafe HTTP methods when the
+selected session cookie is present. `always=True` also protects login or other
+unsafe routes before a session cookie exists. GET/HEAD/OPTIONS pass through.
+Require one allowed Origin, or an allowed Referer origin when Origin is absent,
+plus one token header. Missing, duplicate or malformed cookie/origin/token
+fields return a value-free 403 before body reads. The finite cookie profile
+rejects duplicate names and ambiguous/partially parsed fields.
+
+The caller-owned sync/async token callback receives request metadata and must
+verify the session cookie, returning its expected session-bound token or None.
+The expected token must be unpredictable, session-specific and 16–4096 printable
+ASCII characters/bytes. Comparison uses constant-time byte comparison; the token
+is never echoed in an error. This is an expected session token profile, not an
+unsigned double-submit cookie comparison. The application owns token issuance,
+rotation and session lifecycle. It is a header-token profile; form submissions
+must supply the header through their client or use an application-owned form
+policy. Selecting a token in a JSON/form body is not inferred. See
+[OWASP CSRF prevention](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html).
+
+`RateLimitMiddleware(decide=callback)` asks a caller-owned sync/async decision
+function for None (allow) or integer retry seconds in 0–86,400 (429 with
+Retry-After/no-store). No implicit counter or backend is installed. Shared,
+atomic storage and key selection are application responsibilities when limits
+must span workers. CSRF token and rate-limit callbacks receive metadata-only
+HTTPRequest objects; body consumption is disabled. Route-authenticated identity
+has not yet been resolved at this middleware stage. A caller may instead use
+an ordered route dependency for decisions requiring that verified principal.
+
+Every profile passes lifespan through. TrustedHost/ProxyHeaders apply to
+WebSockets; CORS, CSRF, security response headers and rate-limit decisions apply
+to HTTP. Existing resource WebSocket origin/authentication checks still run.
+No profile changes cookie flags, stores credentials, enables proxy trust or
+publishes an application unless explicitly selected/configured by the caller.
+
+## Version preparation and acceptance
+
+Version 0.2.0 includes the completed HTTP foundation and these five framework
+arenas, including provider task-ownership qualification. Package, import and
+lockfile versions agree. Python 3.14 and the existing optional requirements are
+unchanged. The distribution gate verifies module inventories, passive imports,
+metadata, source rebuild parity and the complete base suite in clean wheel and
+source installations. Installed receipts explicitly retain the new dependency,
+policy, testing, contract and middleware module counts. Existing optional-profile
+and Linux/macOS/Windows jobs remain selected in CI.
+
+The composed acceptance case covers trusted proxy/host selection, HTTPS headers,
+credentialed CORS, session-token CSRF, the rate-limit hook, authenticated tenant
+and scope checks, request-managed services, typed JSON and the public client.
+Pretty Notebook's actual factories, ORM, validators, publishing protocol and
+deployment still require the PNB-WEB compatibility phase. Package publication
+also remains a separate authorized operation after final CI review.
 
 ## Development arenas
 
@@ -164,6 +270,7 @@ The canonical queue is [Project 7](https://github.com/orgs/wispsy/projects/7):
 | Arena | Contract |
 | --- | --- |
 | [EXP-WEB-01](https://github.com/wispsy/expose_api/issues/132) | Typed request dependencies and resource cleanup |
+| [EXP-WEB-01A](https://github.com/wispsy/expose_api/issues/141) | Provider context/task ownership qualification |
 | [EXP-WEB-02](https://github.com/wispsy/expose_api/issues/133) | Authenticated access policy composition |
 | [EXP-WEB-03](https://github.com/wispsy/expose_api/issues/134) | Public asynchronous ASGI testing client |
 | [EXP-WEB-04](https://github.com/wispsy/expose_api/issues/135) | Validated custom handler contracts |
