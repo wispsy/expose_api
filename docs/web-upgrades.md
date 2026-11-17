@@ -53,6 +53,56 @@ metadata cannot select an anonymous alternative for authenticated routes.
 Credential verification, session/account storage and token issuance remain
 application-owned.
 
+## Public async testing client
+
+```python
+from expose_api import TestClient
+
+async with TestClient(app) as client:
+    result = await client.get('/healthz')
+    assert result.status == 200
+```
+
+The client drives one explicit ASGI startup/shutdown lifecycle in the current
+event loop. It also accepts arbitrary ASGI applications implementing lifespan.
+Startup/shutdown refusal, raw application exceptions, invalid framing and peer
+timeouts remain visible to the test. Exiting closes WebSocket sessions and
+cancels unfinished requests before shutdown, then restores overrides.
+
+HTTP helpers support get/post/put/patch/delete/head/options and arbitrary uppercase
+methods through `request(method, path)`. Select `json=`, `data=` (urlencoded),
+`content=` or raw ASGI `events=`; `params=` preserves repeated query pairs.
+Pass `disconnect=True` to queue a disconnect after input events. Ordinary requests
+keep receive open after the body so streams can complete. Results expose status,
+body/text/json properties, raw_headers and repeated `headers.getlist(name)`,
+messages, receive-call count and whether the response completed. Disconnected
+requests may have status 0 and an incomplete response.
+
+The client buffers at most max_response_size (default 16 MiB), enforces event
+ordering and uses a five-second default timeout. It makes no network requests,
+follows no redirects and accepts only local request paths on its selected
+base_url. The standard-library cookie jar preserves path/domain/secure/expiry
+rules and repeated Set-Cookie; this does not emulate browser SameSite or CORS.
+`root_path`, default headers and explicit per-request scope overrides support
+mount/protocol tests. Raw scope/events overrides are intentionally test inputs.
+
+`TestClient(app, providers={Type: replacement}, authenticate=verifier)` uses
+task-local application overrides. Authentication overrides also apply to
+resource subscriptions; permission policies still run. Applications without
+these override interfaces can use the remaining client features unchanged.
+
+`async with client.websocket(path, headers=..., subprotocols=...) as socket`
+requires acceptance, exposes its accept event, and supports send_text,
+send_bytes, send_json, receive_event and receive_json. Message size and a
+single buffered outgoing message bound producer output. Rejection and premature
+closure raise ProtocolError; raw receive_event exposes later close codes.
+Timeouts cancel application tasks; application cleanup must cooperate with
+cancellation, and owned cleanup is allowed to settle before exit.
+
+The event shapes and lifecycle follow the
+[ASGI HTTP/WebSocket](https://asgi.readthedocs.io/en/latest/specs/www.html) and
+[lifespan](https://asgi.readthedocs.io/en/latest/specs/lifespan.html) specifications.
+
 ## Development arenas
 
 The canonical queue is [Project 7](https://github.com/orgs/wispsy/projects/7):

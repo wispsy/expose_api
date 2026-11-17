@@ -129,6 +129,21 @@ class App:
         self._mount_urls = Router()
         self._providers = {}
         self._provider_overrides = ContextVar('expose_api_provider_overrides', default={})
+        self._authentication_override = ContextVar('expose_api_authentication_override', default=None)
+
+    @contextmanager
+    def override_authentication(self, authenticate):
+        """Select a task-local verifier for tests without changing access checks."""
+        if self.authenticate is None or not callable(authenticate):
+            raise ConfigurationError('Authentication overrides require an existing verifier and a callable.')
+        token = self._authentication_override.set(authenticate)
+        try:
+            yield self
+        finally:
+            self._authentication_override.reset(token)
+
+    def _authentication_callback(self):
+        return self._authentication_override.get() or self.authenticate
 
     def provide(self, key, provider):
         """Register one request provider per concrete type before serving."""
@@ -518,7 +533,7 @@ class App:
         context = HTTPRequest(scope, receive, max_body_size=self.max_body_size, path_params=params, app=self)
         state.context = context
         if route.authenticate:
-            principal = self.authenticate(context)
+            principal = self._authentication_callback()(context)
             if inspect.isawaitable(principal):
                 principal = await principal
             if principal is None:
@@ -551,7 +566,7 @@ class App:
     async def _context(self, mount, scope, operation, identity):
         context = Request(dict(scope), mount.resource.model, operation, identity)
         if mount.record_policy is not None:
-            principal = self.authenticate(context)
+            principal = self._authentication_callback()(context)
             if inspect.isawaitable(principal):
                 principal = await principal
             if principal is None:
