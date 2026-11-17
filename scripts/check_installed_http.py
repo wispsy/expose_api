@@ -11,7 +11,7 @@ from pathlib import Path
 
 import expose_api
 
-_HTTP_MODULES = {'test_testing', 'test_access_policies', 'test_dependencies', 'test_responses', 'test_requests', 'test_routing', 'test_routers', 'test_composition',
+_HTTP_MODULES = {'test_contracts', 'test_testing', 'test_access_policies', 'test_dependencies', 'test_responses', 'test_requests', 'test_routing', 'test_routers', 'test_composition',
                  'test_route_access', 'test_route_docs', 'test_streaming', 'test_files', 'test_multipart',
                  'test_static', 'test_templates', 'test_http_extensions'}
 

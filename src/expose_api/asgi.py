@@ -212,13 +212,14 @@ class App:
         self._applications.append((path, application))
 
     def route(self, path, *, methods=("GET",), public=False, authorize=None, name=None,
-              authenticate=False, dependencies=(), docs=None, access=None):
+              authenticate=False, dependencies=(), docs=None, access=None, contract=None):
         """Register a handler receiving one HTTPRequest and returning a Response."""
         def register(handler):
             if self._frozen:
                 raise ConfigurationError("Register routes before serving the application.")
             route = make_route(path, handler, methods=methods, public=public, authorize=authorize, name=name,
-                               authenticate=authenticate, dependencies=dependencies, docs=docs, access=access)
+                               authenticate=authenticate, dependencies=dependencies, docs=docs, access=access,
+                               contract=contract)
             if route.authenticate and self.authenticate is None:
                 raise ConfigurationError("Authenticated routes require an application authenticator.")
             if name is not None and any(route.name == name for route in self._mount_urls._routes):
@@ -556,9 +557,13 @@ class App:
                 result = await result
             if result is not None:
                 raise ConfigurationError("Request dependencies must return None; raise HTTPException to deny.")
+        if route.contract is not None and route.contract.input is not None:
+            context.input = await route.contract.read(context)
         response = route.handler(context)
         if inspect.isawaitable(response):
             response = await response
+        if route.contract is not None and route.contract.output is not None:
+            return await route.contract.response(response)
         if not isinstance(response, Response):
             raise ConfigurationError("HTTP handlers must return an explicit Response.")
         return response

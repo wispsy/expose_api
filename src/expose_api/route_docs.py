@@ -83,6 +83,7 @@ class RouteDocs:
                         or any(type(scope) is not str for scope in scopes) for scopes in requirement.values())):
                     raise ConfigurationError('Security requirements map scheme names to scope lists.')
         self.include, self.operation_id, self._data = include, operation_id, data
+        self._explicit_responses = responses is not None
 
     def snapshot(self):
         return deepcopy(self)
@@ -162,8 +163,12 @@ def extend_document(app, paths, components):
                     value['x-access-policy'] = 'authenticated-policy'
                     value['x-required-scopes'] = sorted(route.access.scopes)
                     value['x-tenant-policy'] = 'fixed' if type(route.access.tenant) is str else 'required' if route.access.tenant else 'optional'
-                value['x-runtime-validation'] = False
-                codes = {400, 405, 500}
+                value['x-runtime-validation'] = route.contract is not None
+                if route.contract is not None and route.contract.input is not None:
+                    codes = {422}
+                else:
+                    codes = set()
+                codes.update({400, 405, 500})
                 if route.authorize is not None:
                     codes.add(403)
                 if route.authenticate:
