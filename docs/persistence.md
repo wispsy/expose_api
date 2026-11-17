@@ -64,7 +64,6 @@ revisions before an upgrade. Restore that checkpoint with matching code.
 The implementation must run shared detached-value/CRUD/transform conformance,
 reopen persistence, invalid output rollback, checked-write conflicts, canceled
 dispatch and independent-process conflicting transforms. Backpack's migration,
-backup and process tests remain the owning backend evidence. Because the new
-interfaces are unreleased, integration must pin an immutable development
-revision and label it explicitly; the published `backpack-store==0.1.0` alone
-does not provide this profile. Publication is a separate decision.
+backup and process tests remain the owning backend evidence. The 0.2.0 extra
+selects published `backpack-store==0.2.0` and Enforce Type 0.2.0. The original
+`backpack-store==0.1.0` does not provide this application profile.

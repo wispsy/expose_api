@@ -5,7 +5,7 @@ does not publish a tag, a GitHub release or a package.
 
 1. Merge the implementation PRs in dependency order with passing checks and verify
    final main. Keep parent branches while open dependent PRs target them.
-2. Run `uv run --frozen python scripts/check_distribution.py --tag v0.2.0 --output-dir /path/to/new/candidate-directory`.
+2. Run `uv run --frozen python scripts/check_distribution.py --tag v0.2.0 --backpack --enforce-type --output-dir /path/to/new/candidate-directory`.
    Review exact contents, metadata, tests and SHA256 receipts. Version, tag and
    package `__version__` must agree.
 3. Confirm the PyPI Trusted Publisher identifies owner `wispsy`, repository
@@ -24,5 +24,6 @@ does not publish a tag, a GitHub release or a package.
    can then reference the immutable tag and those same artifacts.
 
 Never replace a released version/tag, put an API token into a workflow, or upload
-files rebuilt after verification. License terms remain unspecified; a public
-repository is not a license grant.
+files rebuilt after verification. Distributions include the repository's MIT
+license and verified license metadata. Registry-only optional requirements must
+resolve without sibling checkouts or Git URLs.

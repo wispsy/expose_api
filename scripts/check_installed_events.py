@@ -20,15 +20,16 @@ def main():
 
     assert Path(expose_api.__file__).is_relative_to(Path(sys.prefix))
     assert Path(backpack_store.__file__).is_relative_to(Path(sys.prefix))
-    backend = json.loads(metadata.distribution("backpack-store").read_text("direct_url.json"))["vcs_info"]["commit_id"]
-    assert backend == "9a691aa551bf7fb42134168452bbdb2e1d454928"
-    assert metadata.version("enforce-type") == "0.1.0"
+    backend = metadata.version("backpack-store")
+    assert backend == "0.2.0"
+    assert metadata.distribution("backpack-store").read_text("direct_url.json") is None
+    assert metadata.version("enforce-type") == "0.2.0"
     loader = unittest.TestLoader()
     suite = unittest.TestSuite(loader.discover(str(args.tests), pattern=pattern) for pattern in (
         "test_events.py", "test_websocket.py", "test_backpack*.py", "test*access.py", "test_persistent_websocket.py"))
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     receipt = {"profile": "backpack-events-v1", "python": platform.python_version(), "os": platform.system(), "machine": platform.machine(),
-               "package_version": expose_api.__version__, "backend_commit": backend,
+               "package_version": expose_api.__version__, "backend_version": backend,
                "enforce_type_version": metadata.version("enforce-type"), "tests": result.testsRun,
                "skipped": len(result.skipped), "failures": len(result.failures), "errors": len(result.errors),
                "modules_sha256": {name: hashlib.sha256(Path(expose_api.__file__).with_name(name).read_bytes()).hexdigest()

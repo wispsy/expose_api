@@ -31,10 +31,10 @@ def main():
 
     for module in (expose_api, enforce_type):
         assert Path(module.__file__).is_relative_to(Path(sys.prefix))
-    assert metadata.version("enforce-type") == "0.1.0"
+    assert metadata.version("enforce-type") == "0.2.0"
     engine_digest = package_digest(Path(enforce_type.__file__).parent)
-    # Published 0.1.0 wheel bytes, independent of platform and bytecode cache.
-    assert engine_digest == "9292836eaed067a2feba0eceb0fd91c928c45871dfc153d4728e37ab4e0eb9fe"
+    # Qualified 0.2.0 wheel bytes, independent of platform and bytecode cache.
+    assert engine_digest == "dabe37b0b91b605ab934514c3b4aef36655748f5023c0ea4551cf9bddf8a20b4"
     if not args.backpack:
         assert importlib.util.find_spec("backpack_store") is None
     sys.path.insert(0, str(args.tests))
