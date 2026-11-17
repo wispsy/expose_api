@@ -142,7 +142,7 @@ class EventSockets:
 
             async def current(expected=None):
                 async with asyncio.timeout(config.auth_timeout):
-                    principal = self.app.authenticate(context)
+                    principal = self.app._authentication_callback()(context)
                     if inspect.isawaitable(principal):
                         principal = await principal
                     if principal is None or expected is not None and principal != expected:
