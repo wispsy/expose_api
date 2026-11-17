@@ -1,6 +1,7 @@
 import asyncio
 import unittest
 from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
 
 from expose_api import App, ConfigurationError, HTTPException, JSONResponse, Response, StreamingResponse
 from asgi_client import request
@@ -15,6 +16,103 @@ class Other:
 
 
 class DependencyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_context_managers_exit_in_their_own_task_and_context(self):
+        for asynchronous in (False, True):
+            app, closed = App(), []
+            selected = ContextVar('selected_service', default=None)
+            def enter():
+                return asyncio.current_task(), selected.set('service')
+            def leave(owner, token):
+                self.assertIs(asyncio.current_task(), owner)
+                self.assertEqual(selected.get(), 'service')
+                selected.reset(token)
+                closed.append(True)
+            @contextmanager
+            def sync_provider(context):
+                owner, token = enter()
+                try:
+                    yield Service()
+                finally:
+                    leave(owner, token)
+            @asynccontextmanager
+            async def async_provider(context):
+                owner, token = enter()
+                try:
+                    yield Service()
+                finally:
+                    await asyncio.sleep(0)
+                    leave(owner, token)
+            app.provide(Service, async_provider if asynchronous else sync_provider)
+            @app.route('/x', public=True)
+            async def handler(context):
+                await context.resolve(Service)
+                self.assertIsNone(selected.get())
+                return Response()
+            await request(app, '/x')
+            self.assertEqual(closed, [True])
+
+    async def test_pending_providers_are_cancelled_when_request_finishes(self):
+        app, entered, closed, consumers = App(), asyncio.Event(), [], []
+        async def provider(context):
+            entered.set()
+            try:
+                await asyncio.Future()
+            finally:
+                closed.append(True)
+        app.provide(Service, provider)
+        @app.route('/x', public=True)
+        async def handler(context):
+            consumers.append(asyncio.create_task(context.resolve(Service)))
+            await entered.wait()
+            return Response()
+        await request(app, '/x')
+        with self.assertRaises(asyncio.CancelledError):
+            await consumers[0]
+        self.assertEqual(closed, [True])
+
+    async def test_cleanup_failure_still_closes_earlier_contexts(self):
+        app, calls = App(), []
+        @contextmanager
+        def earlier(context):
+            try:
+                yield Other()
+            finally:
+                calls.append('earlier')
+        @asynccontextmanager
+        async def later(context):
+            await context.resolve(Other)
+            try:
+                yield Service()
+            finally:
+                calls.append('later')
+                raise RuntimeError('cleanup failure')
+        app.provide(Other, earlier)
+        app.provide(Service, later)
+        @app.route('/x', public=True)
+        async def handler(context):
+            await context.resolve(Service)
+            return Response()
+        with self.assertRaisesRegex(RuntimeError, 'cleanup failure'):
+            await request(app, '/x')
+        self.assertEqual(calls, ['later', 'earlier'])
+
+    async def test_context_suppressing_an_invalid_value_cannot_hang_resolution(self):
+        app = App()
+        @contextmanager
+        def provider(context):
+            try:
+                yield Other()
+            except ConfigurationError:
+                pass
+        app.provide(Service, provider)
+        @app.route('/x', public=True)
+        async def handler(context):
+            await context.resolve(Service)
+            return Response()
+        with self.assertLogs('expose_api', 'ERROR'):
+            result = await asyncio.wait_for(request(app, '/x'), 1)
+        self.assertEqual(result.status, 500)
+
     async def test_typed_cache_concurrent_resolution_and_request_isolation(self):
         app, calls = App(), []
         async def provider(context):
